@@ -9,6 +9,9 @@ app/api/youtubes
 # Tera API routes
 app/api/tera
 
+# Eporner API routes
+app/api/adult/eporner
+
 # Email service and email list
 lib/email-service.ts
 emails.txt

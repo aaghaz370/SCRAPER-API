@@ -17,7 +17,8 @@ export async function GET(request: NextRequest) {
 
     const url = `https://www.eporner.com/search/${encodeURIComponent(query)}/${page}/`;
 
-    const response = await axios.get(url, {
+    const proxyUrl = `https://nisansh.me/?url=${encodeURIComponent(url)}`;
+    const response = await axios.get(proxyUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
