@@ -45,7 +45,7 @@
     "@use-gesture/react": "^10.3.1",
     "axios": "^1.13.2",
     "better-auth": "^1.4.12",
-    "cheerio": "^1.1.2",
+    "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

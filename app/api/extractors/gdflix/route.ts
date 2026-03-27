@@ -1,16 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateApiKey } from '@/lib/api-auth';
+import * as cheerio from 'cheerio';
 
 export async function GET(request: NextRequest) {
-  // Validate API key
-  const validation = await validateApiKey(request);
-  if (!validation.valid) {
-    return NextResponse.json(
-      { error: validation.error || 'Unauthorized' },
-      { status: 401 }
-    );
-  }
-
   try {
     const { searchParams } = new URL(request.url);
     const url = searchParams.get('url');
@@ -22,33 +13,61 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get the API key from validation
-    const apiKey = validation.keyData?.key;
-
-    // Make request to external extractor API
-    const response = await fetch(
-      `https://scarperapi-extractor-7tr4.vercel.app/api/gdflix?url=${encodeURIComponent(url)}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey || ''
-        }
+    // -- Independent Native GDFlix Extractor --
+    
+    // 1. Fetch the GDFlix landing page
+    const res = await fetch(url.trim(), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Referer': url.trim()
       }
-    );
+    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
+    if (!res.ok) {
       return NextResponse.json(
-        { error: 'Failed to extract from gdflix', details: errorText },
-        { status: response.status }
+        { error: `Failed to fetch GDFlix link: HTTP ${res.status}` },
+        { status: 500 }
       );
     }
+    
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    
+    const downloadLinks: Array<{ name: string; link: string }> = [];
+    
+    // 2. Extract direct Instant DL button
+    $('a').each((_, el) => {
+      const text = $(el).text().trim();
+      let link = $(el).attr('href') || '';
+      
+      // Look for standard direct download buttons like 'Instant DL'
+      if (link && !link.includes('javascript:void(0)') && 
+          (text.toLowerCase().includes('instant') || 
+           text.toLowerCase().includes('download') ||
+           text.toLowerCase().includes('dl'))) {
+          
+          if (link.startsWith('//')) link = 'https:' + link;
+          
+          // Clean up the name
+          let cleanName = text.replace(/\[\d+GBPS\]/i, '').trim();
+          if (cleanName.toLowerCase() === 'login to dl') return; // Skip login buttons
+          if (link.includes('login?ref=')) return;
+          
+          downloadLinks.push({
+            name: cleanName || text,
+            link: link
+          });
+      }
+    });
 
-    const data = await response.json();
-    return NextResponse.json(data);
+    return NextResponse.json({
+      success: true,
+      originalUrl: url,
+      links: downloadLinks
+    });
+    
   } catch (error) {
-    console.error('Error in gdflix extractor:', error);
+    console.error('Error in independent gdflix extractor:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

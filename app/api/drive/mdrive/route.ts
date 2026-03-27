@@ -37,11 +37,11 @@ export async function GET(request: NextRequest) {
       const $el = $(element);
       const text = $el.text();
 
-      if (text.match(/Ep\d+.*\d+.*MB/)) {
-        const epMatch = text.match(/Ep(\d+)/);
-        const sizeMatch = text.match(/\[([\d.]+\s*MB)\]/);
+      if (text.match(/Ep\d+/i) || text.match(/Episode\s*\d+/i)) {
+        const epMatch = text.match(/(?:Ep|Episode|E)\s*(\d+)/i);
+        const sizeMatch = text.match(/\[([\d.]+\s*[GM]B)\]/i);
         
-        const episode = epMatch ? `Ep${epMatch[1]}` : "";
+        const episode = epMatch ? `Ep${epMatch[1]}` : "Series";
         const size = sizeMatch ? sizeMatch[1] : "";
 
         const $nextH5 = $el.next("h5");

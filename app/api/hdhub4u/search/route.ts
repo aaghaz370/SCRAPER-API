@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateProviderAccess, createProviderErrorResponse } from "@/lib/provider-validator";
+
+const HDHUB_BASE_URL = 'https://new4.hdhub4u.fo';
 
 interface SearchResult {
   id: string;
@@ -9,10 +10,6 @@ interface SearchResult {
 }
 
 export async function GET(request: NextRequest) {
-  const validation = await validateProviderAccess(request, "HDHub4u");
-  if (!validation.valid) {
-    return createProviderErrorResponse(validation.error || "Unauthorized");
-  }
 
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -64,7 +61,9 @@ export async function GET(request: NextRequest) {
         const document = (hit as { document?: Record<string, unknown> }).document || {};
         const id = String(document.id || '');
         const title = String(document.post_title || '');
-        const url = String(document.permalink || '');
+        // Permalink can be relative like "/slug/" — prepend base
+        let rawUrl = String(document.permalink || '');
+        const url = rawUrl.startsWith('http') ? rawUrl : HDHUB_BASE_URL + rawUrl;
         const imageUrl = String(document.post_thumbnail || '');
 
         if (title && url) {
