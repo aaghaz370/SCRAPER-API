@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 // ─── YouTube InnerTube API – no third-party deps, works on Vercel ─────────────
 const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+// WEB client triggers YouTube's bot-check on datacenter IPs.
+// Use WEB with proper headers instead — results still come through even
+// if YouTube adds a "sign in" banner (which only affects the HTML page, not JSON API).
 const INNERTUBE_CLIENT = {
   clientName: "WEB",
   clientVersion: "2.20240101.00.00",
@@ -11,6 +14,7 @@ const INNERTUBE_CLIENT = {
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface VideoResult {
