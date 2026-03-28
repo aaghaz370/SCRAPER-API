@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Innertube, UniversalCache } from "youtubei.js";
 
-export const runtime = "edge"; // Run on Cloudflare IPs instead of AWS Datacenter (bypasses bot block)
 export const dynamic = "force-dynamic";
-
-// ─── YouTube Video Info ───────────────────────────────────────────────────────
-// Strategy: Scrape m.youtube.com (Mobile Web) - works strictly on Vercel Edge.
-// Scans ALL occurrences of ytInitialPlayerResponse to find the real JSON block
-// Fallback: TVHTML5 InnerTube client.
 
 export interface StreamFormat {
   itag: number;
@@ -48,12 +43,6 @@ export interface VideoInfo {
   bestAudioUrl: string;
 }
 
-const MWEB_UA =
-  "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-const TV_UA =
-  "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36; SMART-TV; Tizen 4.0";
-const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
-
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -62,238 +51,113 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function parseFormat(fmt: any, type: "adaptive" | "muxed"): StreamFormat | null {
-  if (!fmt) return null;
-
-  let streamUrl = fmt.url || "";
-  if (!streamUrl && (fmt.signatureCipher || fmt.cipher)) {
-    const raw = fmt.signatureCipher || fmt.cipher;
-    const params = new URLSearchParams(raw);
-    const baseUrl = params.get("url") || "";
-    const sig = params.get("s") || "";
-    const sp = params.get("sp") || "signature";
-    streamUrl = sig ? `${baseUrl}&${sp}=${encodeURIComponent(sig)}` : baseUrl;
-  }
-  if (!streamUrl) return null;
-
-  const mimeType: string = fmt.mimeType || "";
+function mapFormat(f: any): StreamFormat {
+  const mimeType = f.mime_type || "";
   const isVideo = mimeType.startsWith("video/");
   const isAudio = mimeType.startsWith("audio/");
-  const isMuxed = type === "muxed";
-  const hasVideo = isVideo || isMuxed;
-  const hasAudio = isAudio || isMuxed;
+  const hasVideo = f.has_video;
+  const hasAudio = f.has_audio;
 
   let contentType: "video" | "audio" | "video+audio" = "video+audio";
-  if (isVideo && !isMuxed) contentType = "video";
-  else if (isAudio) contentType = "audio";
+  if (hasVideo && !hasAudio) contentType = "video";
+  else if (hasAudio && !hasVideo) contentType = "audio";
 
   const qualityLabel =
-    fmt.qualityLabel ||
-    (fmt.audioQuality ? fmt.audioQuality.replace("AUDIO_QUALITY_", "").toLowerCase() : "");
+    f.quality_label ||
+    (f.audio_quality ? f.audio_quality.replace("AUDIO_QUALITY_", "").toLowerCase() : "");
+    
   let quality = qualityLabel;
   if (!quality) {
-    if (isAudio) quality = `${Math.round((fmt.bitrate || 0) / 1000)}kbps audio`;
-    else quality = fmt.quality || "unknown";
+    if (hasAudio && !hasVideo) quality = `${Math.round((f.bitrate || 0) / 1000)}kbps audio`;
+    else quality = f.quality || "unknown";
+  }
+
+  // Descramble URL correctly
+  let url = f.url || "";
+  if (!url && f.decipher) {
+    url = f.decipher(); // youtubei.js natively provides URL deciphering!
   }
 
   return {
-    itag: fmt.itag,
+    itag: f.itag,
     quality,
     qualityLabel,
     mimeType,
     contentType,
-    bitrate: fmt.bitrate || fmt.averageBitrate || 0,
-    width: fmt.width,
-    height: fmt.height,
-    fps: fmt.fps,
-    audioQuality: fmt.audioQuality,
-    audioSampleRate: fmt.audioSampleRate,
-    approxDurationMs: fmt.approxDurationMs || "0",
-    contentLength: fmt.contentLength,
-    url: streamUrl,
+    bitrate: f.bitrate || f.average_bitrate || 0,
+    width: f.width,
+    height: f.height,
+    fps: f.fps,
+    audioQuality: f.audio_quality,
+    audioSampleRate: f.audio_sample_rate?.toString(),
+    approxDurationMs: f.approx_duration_ms?.toString() || "0",
+    contentLength: f.content_length?.toString(),
+    url,
     hasVideo,
     hasAudio,
   };
 }
 
-// ─── Robust JSON extractor – skips "= null" and other non-object occurrences ──
-function extractPlayerResponse(html: string): any | null {
-  const MARKER = "ytInitialPlayerResponse";
-  let searchStart = 0;
-
-  while (searchStart < html.length) {
-    const idx = html.indexOf(MARKER, searchStart);
-    if (idx === -1) return null;
-
-    const startBrace = html.indexOf("{", idx);
-    // If the { is more than 35 chars away, this occurrence is "= null;" or similar → skip
-    if (startBrace === -1 || startBrace - idx > 35) {
-      searchStart = idx + MARKER.length;
-      continue;
-    }
-
-    // Walk balanced braces — only handle double-quote strings (JSON-valid)
-    let depth = 0, inStr = false, esc = false;
-    for (let i = startBrace; i < Math.min(html.length, startBrace + 6_000_000); i++) {
-      const ch = html[i];
-      if (esc) { esc = false; continue; }
-      if (ch === "\\" && inStr) { esc = true; continue; }
-      if (ch === '"') { inStr = !inStr; continue; }
-      if (inStr) continue;
-      if (ch === "{") depth++;
-      else if (ch === "}") {
-        depth--;
-        if (depth === 0) {
-          try {
-            const parsed = JSON.parse(html.slice(startBrace, i + 1));
-            // Only accept if it contains real video data
-            if (parsed?.videoDetails?.videoId) return parsed;
-          } catch {
-            /* try next occurrence */
-          }
-          break; // break inner for-loop, continue searching
-        }
-      }
-    }
-    searchStart = idx + MARKER.length;
+let ytInstance: Innertube | null = null;
+async function getYT() {
+  if (!ytInstance) {
+    ytInstance = await Innertube.create({
+      generate_session_locally: true,
+      cache: new UniversalCache(false),
+    });
   }
-  return null;
+  return ytInstance;
 }
 
-// ─── Strategy 1: MWEB HTML scrape ────────────────────────────────────────────
-async function fetchFromMWEB(videoId: string, useGooglebot = false): Promise<any> {
-  // WhatsApp and Googlebot user-agents are explicitly whitelisted by YouTube
-  // from receiving CAPTCHA bot-challenges, allowing them to cleanly parse the HTML
-  // on Vercel Cloudflare Edge IPs. 
-  const UA = useGooglebot
-    ? "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
-    : "WhatsApp/2.21.19.21 A";
+async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
+  const yt = await getYT();
+  
+  // getInfo correctly builds poToken bypassing botguard!
+  const info = await yt.getInfo(videoId);
 
-  const url = `https://m.youtube.com/watch?v=${videoId}&hl=en&gl=US`;
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": UA,
-      "Accept-Language": "en-US,en;q=0.9",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Cookie": "CONSENT=YES+1",
-    },
-  });
-  if (!res.ok) throw new Error(`MWEB (${useGooglebot ? 'Googlebot' : 'WhatsApp'}): HTTP ${res.status}`);
-  const html = await res.text();
-  const parsed = extractPlayerResponse(html);
-  if (!parsed) throw new Error(`ytInitialPlayerResponse not found using ${useGooglebot ? 'Googlebot' : 'WhatsApp'} UA`);
-  return parsed;
-}
+  const basic = info.basic_info;
+  const streaming = info.streaming_data;
 
-// ─── Strategy 2: TVHTML5 InnerTube ───────────────────────────────────────────
-async function fetchTVClient(videoId: string): Promise<any> {
-  const body = {
-    context: {
-      client: {
-        clientName: "TVHTML5",
-        clientVersion: "7.20230419.01.00",
-        userAgent: TV_UA,
-        hl: "en",
-        gl: "US",
-      },
-    },
-    videoId,
-    playbackContext: {
-      contentPlaybackContext: { html5Preference: "HTML5_PREF_WANTS" },
-    },
-  };
-  const res = await fetch(
-    `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}&prettyPrint=false`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": TV_UA },
-      body: JSON.stringify(body),
-    }
-  );
-  if (!res.ok) throw new Error(`TVHTML5: HTTP ${res.status}`);
-  const data = await res.json();
-  const status = data?.playabilityStatus?.status;
-  if (status === "LOGIN_REQUIRED" || status === "UNPLAYABLE") {
-    throw new Error(`TVHTML5: ${status}`);
+  if (info.playability_status?.status === "LOGIN_REQUIRED") {
+    throw new Error("LOGIN_REQUIRED: YouTube restricted this video.");
   }
-  return data;
-}
+  if (!streaming || (!streaming.formats?.length && !streaming.adaptive_formats?.length)) {
+    throw new Error("No streams returned by YouTube API (Botguard block or no formats available).");
+  }
 
-// ─── Strategy 3: oEmbed metadata only ────────────────────────────────────────
-async function fetchOEmbed(videoId: string): Promise<Partial<VideoInfo>> {
-  const res = await fetch(
-    `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
-  );
-  if (!res.ok) throw new Error(`oEmbed: HTTP ${res.status}`);
-  const d = await res.json();
-  return {
-    videoId,
-    title: d.title || "",
-    channelName: d.author_name || "",
-    thumbnail: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
-    duration: "0:00",
-    durationSeconds: 0,
-    description: "",
-    channelId: "",
-    viewCount: "0",
-    publishDate: "",
-    isLive: false,
-    isPrivate: false,
-    formats: [],
-    videoFormats: [],
-    videoOnlyFormats: [],
-    audioOnlyFormats: [],
-    bestVideoUrl: `https://www.youtube.com/watch?v=${videoId}`,
-    bestAudioUrl: "",
-  };
-}
+  const rawMuxed = streaming.formats || [];
+  const rawAdaptive = streaming.adaptive_formats || [];
 
-// ─── Build VideoInfo from player data ────────────────────────────────────────
-function buildVideoInfo(videoId: string, data: any): VideoInfo {
-  const vd = data?.videoDetails || {};
-  const mf = data?.microformat?.playerMicroformatRenderer || {};
-  const sd = data?.streamingData || {};
+  const muxed = rawMuxed.map(mapFormat);
+  const adaptive = rawAdaptive.map(mapFormat);
 
-  const durationSeconds = parseInt(vd.lengthSeconds || "0");
-  const thumbnails: any[] = vd.thumbnail?.thumbnails || [];
-  const thumbnail =
-    thumbnails[thumbnails.length - 1]?.url ||
-    `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-
-  const rawMuxed: any[] = sd.formats || [];
-  const rawAdaptive: any[] = sd.adaptiveFormats || [];
-
-  const muxed = rawMuxed
-    .map((f) => parseFormat(f, "muxed"))
-    .filter(Boolean) as StreamFormat[];
-  const adaptive = rawAdaptive
-    .map((f) => parseFormat(f, "adaptive"))
-    .filter(Boolean) as StreamFormat[];
-
-  const allFormats = [...muxed, ...adaptive].sort(
-    (a, b) => b.bitrate - a.bitrate
-  );
-  const videoFormats = muxed.sort((a, b) => (b.height || 0) - (a.height || 0));
-  const videoOnlyFormats = adaptive
+  const allFormats = [...muxed, ...adaptive].sort((a, b) => b.bitrate - a.bitrate);
+  const videoFormats = allFormats
+    .filter((f) => f.hasVideo && f.hasAudio)
+    .sort((a, b) => (b.height || 0) - (a.height || 0));
+  const videoOnlyFormats = allFormats
     .filter((f) => f.hasVideo && !f.hasAudio)
     .sort((a, b) => (b.height || 0) - (a.height || 0));
-  const audioOnlyFormats = adaptive
+  const audioOnlyFormats = allFormats
     .filter((f) => f.hasAudio && !f.hasVideo)
     .sort((a, b) => b.bitrate - a.bitrate);
 
+  const durationSeconds = basic.duration || 0;
+  const thumbnail = basic.thumbnail?.[basic.thumbnail.length - 1]?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
   return {
-    videoId: vd.videoId || videoId,
-    title: vd.title || "",
-    description: vd.shortDescription || "",
+    videoId: basic.id || videoId,
+    title: basic.title || "",
+    description: basic.short_description || "",
     thumbnail,
     duration: formatDuration(durationSeconds),
     durationSeconds,
-    channelName: vd.author || "",
-    channelId: vd.channelId || "",
-    viewCount: vd.viewCount || "0",
-    publishDate: mf.publishDate || mf.uploadDate || "",
-    isLive: !!vd.isLiveContent,
-    isPrivate: !!vd.isPrivate,
+    channelName: basic.author || basic.channel?.name || "",
+    channelId: basic.channel_id || "",
+    viewCount: basic.view_count?.toString() || "0",
+    publishDate: "",
+    isLive: !!basic.is_live,
+    isPrivate: false,
     formats: allFormats,
     videoFormats,
     videoOnlyFormats,
@@ -303,83 +167,33 @@ function buildVideoInfo(videoId: string, data: any): VideoInfo {
   };
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
-async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
-  let playerData: any = null;
-
-  // 1. Try WhatsApp crawler User-Agent (gets streamingData AND bypasses Cloudflare checks)
-  try {
-    playerData = await fetchFromMWEB(videoId, false);
-    console.log(`[video-edge] WhatsApp MWEB OK | formats:${playerData?.streamingData?.formats?.length || 0} adaptive:${playerData?.streamingData?.adaptiveFormats?.length || 0}`);
-  } catch (e) {
-    console.warn("[video-edge] WhatsApp MWEB failed:", (e as Error).message);
-    
-    // 2. Fallback: Try Googlebot User-Agent (safest bet for simply extracting videoDetails like title/thumbs bypassing Botguard)
-    try {
-      playerData = await fetchFromMWEB(videoId, true);
-      console.log(`[video-edge] Googlebot MWEB OK | adaptive:${playerData?.streamingData?.adaptiveFormats?.length || 0}`);
-    } catch (err2) {
-      console.warn("[video-edge] Googlebot MWEB failed:", (err2 as Error).message);
-    }
-  }
-
-  // 3. Fallback for Stream Extraction: Try TVHTML5 InnerTube client (Good for non-music videos)
-  if (!playerData?.streamingData?.adaptiveFormats?.length) {
-    try {
-      const tv = await fetchTVClient(videoId);
-      if (tv?.streamingData?.adaptiveFormats?.length) {
-        playerData = playerData
-          ? { ...tv, videoDetails: playerData.videoDetails || tv.videoDetails }
-          : tv;
-        console.log(`[video-edge] TVHTML5 OK | adaptive:${tv.streamingData.adaptiveFormats.length}`);
-      }
-    } catch (e) {
-      console.warn("[video-edge] TVHTML5 failed:", (e as Error).message);
-    }
-  }
-
-  // If no videoDetails could be extracted anywhere (total block), use oEmbed for minimum UX display
-  if (!playerData?.videoDetails) {
-    console.warn("[video-edge] All strategies failed, using oEmbed metadata fallback");
-    return (await fetchOEmbed(videoId)) as VideoInfo;
-  }
-
-  return buildVideoInfo(videoId, playerData);
-}
-
-// ─── Route Handler ────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || searchParams.get("videoId");
 
     if (!id) {
-      return NextResponse.json(
-        { error: "Missing video ID. Use ?id=VIDEO_ID" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing video ID. Use ?id=VIDEO_ID" }, { status: 400 });
     }
 
     let videoId = id.trim();
-    const urlMatch = videoId.match(
-      /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
-    );
+    const urlMatch = videoId.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
     if (urlMatch) videoId = urlMatch[1];
 
     if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
-      return NextResponse.json(
-        { error: "Invalid YouTube video ID (must be 11 chars)" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid YouTube video ID" }, { status: 400 });
     }
 
+    console.log(`[youtube/video] Fetching via youtubei.js: ${videoId}`);
     const info = await fetchVideoInfo(videoId);
+    console.log(`[youtube/video] OK: ${info.formats.length} target formats.`);
+    
     return NextResponse.json({ success: true, data: info });
   } catch (error) {
-    console.error("[youtube/video-edge]", error);
+    console.error("[youtube/video] ERROR:", error);
     return NextResponse.json(
       {
-        error: "Video extraction blocked by anti-bot. Try using Edge runtime.",
+        error: "Video info extraction failed or blocked",
         message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 }
