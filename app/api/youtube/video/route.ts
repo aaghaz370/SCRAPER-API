@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { Innertube, UniversalCache } from "youtubei.js";
 import { YOUTUBE_COOKIES } from "../cookies";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export interface StreamFormat {
