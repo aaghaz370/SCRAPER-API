@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchDDGImages } from "../_utils";
+import { fetchPeakPXPuppeteer, parseWallpaperGrid, parsePagination } from "../_utils";
 
-export const runtime = "edge";
+export const maxDuration = 60; // Allow enough time for Puppeteer to bypass Cloudflare
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
@@ -14,20 +14,27 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing query. Use ?q=nature" }, { status: 400 });
     }
 
-    const searchQuery = `site:peakpx.com ${q} wallpaper`;
-    const wallpapers = await fetchDDGImages(searchQuery, page);
+    const encodedQ = encodeURIComponent(q.trim());
+    const url = page > 1
+      ? `https://www.peakpx.com/en/search?q=${encodedQ}&page=${page}`
+      : `https://www.peakpx.com/en/search?q=${encodedQ}`;
+
+    const html = await fetchPeakPXPuppeteer(url, "figure");
+    const wallpapers = parseWallpaperGrid(html);
+    const { totalPages, hasNextPage } = parsePagination(html, page);
 
     return NextResponse.json({
       success: true,
       query: q,
       page,
-      hasMore: wallpapers.length > 0,
+      totalPages,
+      hasNextPage,
       count: wallpapers.length,
       wallpapers
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
-    console.error("[peakpx/search] DDG Bypass ERROR:", msg);
-    return NextResponse.json({ error: "Search failed", message: msg }, { status: 500 });
+    console.error("[peakpx/search] Puppeteer Bypass ERROR:", msg);
+    return NextResponse.json({ error: "Search failed (Cloudflare block check local/vercel config)", message: msg }, { status: 500 });
   }
 }

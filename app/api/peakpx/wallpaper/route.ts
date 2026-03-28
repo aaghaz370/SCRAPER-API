@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchDDGImages } from "../_utils";
+import { fetchPeakPXPuppeteer } from "../_utils";
 
-export const runtime = "edge";
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
@@ -10,39 +10,52 @@ export async function GET(req: NextRequest) {
     const slugParam = searchParams.get("slug") || "";
     const urlParam = searchParams.get("url") || "";
 
-    if (!slugParam && !urlParam) {
-      return NextResponse.json({
-        error: "Missing required param.",
-        usage: ["?slug=hd-wallpaper-desktop-xxxxx", "?url=https://www.peakpx.com/en/hd-wallpaper-desktop-xxxxx"]
-      }, { status: 400 });
-    }
-
-    let searchTarget = slugParam;
+    let pageUrl = "";
     if (urlParam) {
-      const parts = urlParam.split("/");
-      searchTarget = parts[parts.length - 1] || parts[parts.length - 2];
+      pageUrl = urlParam.startsWith("http") ? urlParam : `https://www.peakpx.com${urlParam}`;
     } else if (slugParam) {
-      const parts = slugParam.split("/");
-      searchTarget = parts[parts.length - 1] || parts[parts.length - 2];
-    }
-    
-    // Convert slug to readable words for DDG
-    const keywords = searchTarget.replace(/-/g, " ").replace(/\.(html|php|aspx)/i, "").trim();
-    
-    // Force DDG to find exact peakpx wallpaper using its slug
-    const searchQuery = `site:peakpx.com "${keywords}"`;
-    const wallpapers = await fetchDDGImages(searchQuery, 1);
-    
-    if (wallpapers.length === 0) {
-      return NextResponse.json({ error: "Wallpaper not found or blocked.", keywords }, { status: 404 });
+      pageUrl = slugParam.startsWith("http") ? slugParam : slugParam.startsWith("/") ? `https://www.peakpx.com${slugParam}` : `https://www.peakpx.com/en/${slugParam}`;
+    } else {
+      return NextResponse.json({ error: "Missing required param: ?slug=xx" }, { status: 400 });
     }
 
-    // Usually the first result is the exact match for the slug 
-    const wallpaper = wallpapers[0];
+    const html = await fetchPeakPXPuppeteer(pageUrl, "#fig img");
+    
+    // Parse it quickly
+    let title = "";
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleMatch) title = titleMatch[1].replace(/ (?:hd )?wallpaper.*/i, "").trim();
+
+    let imageUrl = "";
+    const figMatch = html.match(/id="fig"[\s\S]{0,500}?<img[^>]+src="([^"]+)"/i);
+    if (figMatch) imageUrl = figMatch[1];
+    
+    // Fallback parsing (since we use exact page loading)
+    if (!imageUrl) {
+      const ogImgMatch = html.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i);
+      if (ogImgMatch) imageUrl = ogImgMatch[1];
+    }
+
+    const wMatch = html.match(/<meta[^>]+property="og:image:width"[^>]+content="(\d+)"/i);
+    const hMatch = html.match(/<meta[^>]+property="og:image:height"[^>]+content="(\d+)"/i);
+    const width = wMatch ? parseInt(wMatch[1]) : undefined;
+    const height = hMatch ? parseInt(hMatch[1]) : undefined;
+    const resolution = width && height ? `${width}x${height}` : undefined;
 
     return NextResponse.json({
       success: true,
-      wallpaper
+      wallpaper: {
+        id: slugParam || "",
+        slug: slugParam || "",
+        title: title || "Wallpaper",
+        pageUrl,
+        thumbnailUrl: imageUrl,
+        imageUrl,
+        downloadUrl: imageUrl,
+        resolution,
+        width,
+        height,
+      }
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
