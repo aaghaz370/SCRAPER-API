@@ -10,7 +10,6 @@
     "test-emails": "npx tsx scripts/send-test-emails.ts"
   },
   "dependencies": {
-    "@distube/ytdl-core": "^4.16.12",
     "@hookform/resolvers": "^5.2.2",
     "@neondatabase/serverless": "^1.0.2",
     "@radix-ui/react-accordion": "^1.2.12",

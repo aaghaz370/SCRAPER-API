@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const runtime = "edge";
 // ─── YouTube InnerTube API – no third-party deps, works on Vercel ─────────────
 const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 // WEB client triggers YouTube's bot-check on datacenter IPs.
