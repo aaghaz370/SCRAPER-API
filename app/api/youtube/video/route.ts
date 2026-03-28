@@ -161,64 +161,81 @@ export async function GET(req: NextRequest) {
     console.log(`[youtube/video] NATIVE EDGE EXTRACTOR processing: ${videoId}`);
     
     // 🔥 Execute our unique custom Edge proxy native fallback
-    const ytData = await fetchAdvancedEdgeScrape(videoId);
+    let ytData: any = null;
+    let usePipedFallback = false;
     
-    if (!ytData.streamingData) {
-      throw new Error("No streaming data found! Video might be age-restricted or unavailable.");
+    try {
+      ytData = await fetchAdvancedEdgeScrape(videoId);
+      if (!ytData || !ytData.streamingData) {
+        usePipedFallback = true;
+      }
+    } catch (e) {
+      console.warn(`[youtube/video] Native scrape blocked (${(e as Error).message}). Jumping to Secure API...`);
+      usePipedFallback = true;
     }
 
-    const { videoDetails, streamingData } = ytData;
+    let allFormats: StreamFormat[] = [];
+    let videoFormats: StreamFormat[] = [];
+    let videoOnlyFormats: StreamFormat[] = [];
+    let audioOnlyFormats: StreamFormat[] = [];
+    let videoDetails: any = ytData?.videoDetails || { videoId, title: "YouTube Video", shortDescription: "", lengthSeconds: "0", viewCount: "0" };
 
-    const rawMuxed = streamingData.formats || [];
-    const rawAdaptive = streamingData.adaptiveFormats || [];
+    if (!usePipedFallback) {
+      const rawMuxed = ytData.streamingData.formats || [];
+      const rawAdaptive = ytData.streamingData.adaptiveFormats || [];
 
-    const mapToOurFormat = (f: any): StreamFormat => {
-      const { isVideo, isAudio } = parseMime(f.mimeType || "");
-      const hasVideo = isVideo || !!f.width;
-      const hasAudio = isAudio || !!f.audioQuality;
+      const mapToOurFormat = (f: any): StreamFormat => {
+        const { isVideo, isAudio } = parseMime(f.mimeType || "");
+        const hasVideo = isVideo || !!f.width;
+        const hasAudio = isAudio || !!f.audioQuality;
 
-      let contentType: "video" | "audio" | "video+audio" = "video+audio";
-      if (hasVideo && !hasAudio) contentType = "video";
-      else if (hasAudio && !hasVideo) contentType = "audio";
+        let contentType: "video" | "audio" | "video+audio" = "video+audio";
+        if (hasVideo && !hasAudio) contentType = "video";
+        else if (hasAudio && !hasVideo) contentType = "audio";
 
-      let qualityLabel = f.qualityLabel || (f.audioQuality ? f.audioQuality.replace("AUDIO_QUALITY_", "").toLowerCase() : "");
-      let quality = qualityLabel || f.quality || "unknown";
+        let qualityLabel = f.qualityLabel || (f.audioQuality ? f.audioQuality.replace("AUDIO_QUALITY_", "").toLowerCase() : "");
+        let quality = qualityLabel || f.quality || "unknown";
 
-      // Deciphering: If url is missing and signatureCipher exists, we'd normally need a decryption alg.
-      // Since it's our own code, we filter those out to guarantee working streams, OR we proxy to a fast public decipherer.
-      // Often, GoogleBot or WEB_REMIX returns un-ciphered `url`.
-      // We will grab the url definitively.
-      let url = f.url || (f.signatureCipher ? "cipher_protected" : "");
+        let url = f.url || (f.signatureCipher ? "cipher_protected" : "");
 
-      return {
-        itag: f.itag || 0,
-        quality,
-        qualityLabel,
-        mimeType: f.mimeType || "",
-        contentType,
-        bitrate: f.bitrate || f.averageBitrate || 0,
-        width: f.width,
-        height: f.height,
-        fps: f.fps,
-        audioQuality: f.audioQuality,
-        audioSampleRate: f.audioSampleRate?.toString(),
-        approxDurationMs: f.approxDurationMs?.toString() || "0",
-        contentLength: f.contentLength?.toString(),
-        url,
-        hasVideo,
-        hasAudio,
+        return {
+          itag: f.itag || 0,
+          quality,
+          qualityLabel,
+          mimeType: f.mimeType || "",
+          contentType,
+          bitrate: f.bitrate || f.averageBitrate || 0,
+          width: f.width,
+          height: f.height,
+          fps: f.fps,
+          audioQuality: f.audioQuality,
+          audioSampleRate: f.audioSampleRate?.toString(),
+          approxDurationMs: f.approxDurationMs?.toString() || "0",
+          contentLength: f.contentLength?.toString(),
+          url,
+          hasVideo,
+          hasAudio,
+        };
       };
-    };
 
-    const muxed = rawMuxed.map(mapToOurFormat).filter((f: any) => f.url && f.url !== "cipher_protected");
-    const adaptive = rawAdaptive.map(mapToOurFormat).filter((f: any) => f.url && f.url !== "cipher_protected");
+      const muxed = rawMuxed.map(mapToOurFormat).filter((f: any) => f.url && f.url !== "cipher_protected");
+      const adaptive = rawAdaptive.map(mapToOurFormat).filter((f: any) => f.url && f.url !== "cipher_protected");
+      
+      if (muxed.length === 0 && adaptive.length === 0) {
+        usePipedFallback = true;
+      } else {
+        const allSorted = [...muxed, ...adaptive].sort((a, b) => b.bitrate - a.bitrate);
+        videoFormats = allSorted.filter(f => f.hasVideo && f.hasAudio).sort((a, b) => (b.height || 0) - (a.height || 0));
+        videoOnlyFormats = allSorted.filter(f => f.hasVideo && !f.hasAudio).sort((a, b) => (b.height || 0) - (a.height || 0));
+        audioOnlyFormats = allSorted.filter(f => f.hasAudio && !f.hasVideo).sort((a, b) => b.bitrate - a.bitrate);
+        allFormats = allSorted;
+      }
+    }
 
-    if (muxed.length === 0 && adaptive.length === 0) {
-      // If we only get ciphered streams, implement an ultra fast transparent open-relay fallback (yewtu.be API)
-      // This ensures 100% uptime with our own UI intact!
-      console.log(`[youtube/video] Native URLs ciphered. Bypassing Signature via Secure Open Relay...`);
+    if (usePipedFallback) {
+      console.log(`[youtube/video] Bypassing Vercel Block via Secure Open Relay...`);
       const relayResp = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
-      if (!relayResp.ok) throw new Error("Video is fully DRM encrypted and Open Relays are busy.");
+      if (!relayResp.ok) throw new Error("Video is fully DRM encrypted and Vercel/Open Relays are busy.");
       const relayData = await relayResp.json();
       
       const pipemap = (f: any, t: "video" | "audio" | "videoOnly") => ({
@@ -237,60 +254,30 @@ export async function GET(req: NextRequest) {
         approxDurationMs: "0",
       } as StreamFormat);
 
-      const aO = (relayData.audioStreams || []).map((x: any) => pipemap(x, "audio"));
-      const combo = (relayData.videoStreams || []).filter((x:any)=>!x.videoOnly).map((x: any) => pipemap(x, "video"));
-      const dash = (relayData.videoStreams || []).filter((x:any)=>x.videoOnly).map((x: any) => pipemap(x, "videoOnly"));
+      audioOnlyFormats = (relayData.audioStreams || []).map((x: any) => pipemap(x, "audio"));
+      videoFormats = (relayData.videoStreams || []).filter((x:any)=>!x.videoOnly).map((x: any) => pipemap(x, "video"));
+      videoOnlyFormats = (relayData.videoStreams || []).filter((x:any)=>x.videoOnly).map((x: any) => pipemap(x, "videoOnly"));
       
-      const allStreams = [...aO, ...combo, ...dash].sort((a, b) => b.bitrate - a.bitrate);
-      const seconds = videoDetails?.lengthSeconds ? parseInt(videoDetails.lengthSeconds, 10) : 0;
-      
-      return NextResponse.json({
-        success: true,
-        data: {
-          videoId: videoDetails?.videoId || videoId,
-          title: videoDetails?.title || "Video",
-          description: videoDetails?.shortDescription || "",
-          thumbnail: videoDetails?.thumbnail?.thumbnails?.pop()?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-          duration: formatDuration(seconds),
-          durationSeconds: seconds,
-          channelName: videoDetails?.author || "",
-          channelId: videoDetails?.channelId || "",
-          viewCount: videoDetails?.viewCount || "0",
-          publishDate: "",
-          isLive: !!videoDetails?.isLiveContent,
-          isPrivate: false,
-          formats: allStreams,
-          videoFormats: combo, 
-          videoOnlyFormats: dash,
-          audioOnlyFormats: aO,
-          bestVideoUrl: combo[0]?.url || dash[0]?.url || "",
-          bestAudioUrl: aO[0]?.url || "",
-        }
-      });
+      allFormats = [...audioOnlyFormats, ...videoFormats, ...videoOnlyFormats].sort((a, b) => b.bitrate - a.bitrate);
     }
 
-    const allFormats = [...muxed, ...adaptive].sort((a, b) => b.bitrate - a.bitrate);
-    const videoFormats = allFormats.filter(f => f.hasVideo && f.hasAudio).sort((a, b) => (b.height || 0) - (a.height || 0));
-    const videoOnlyFormats = allFormats.filter(f => f.hasVideo && !f.hasAudio).sort((a, b) => (b.height || 0) - (a.height || 0));
-    const audioOnlyFormats = allFormats.filter(f => f.hasAudio && !f.hasVideo).sort((a, b) => b.bitrate - a.bitrate);
-
-    const seconds = parseInt(videoDetails.lengthSeconds || "0", 10);
-    const thumbnail = videoDetails.thumbnail?.thumbnails?.pop()?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    const seconds = videoDetails?.lengthSeconds ? parseInt(videoDetails.lengthSeconds, 10) : 0;
+    const thumbnail = videoDetails?.thumbnail?.thumbnails?.pop()?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
     return NextResponse.json({
       success: true,
       data: {
-        videoId: videoDetails.videoId || videoId,
-        title: videoDetails.title || "",
-        description: videoDetails.shortDescription || "",
+        videoId: videoDetails?.videoId || videoId,
+        title: videoDetails?.title || "Video",
+        description: videoDetails?.shortDescription || "",
         thumbnail,
         duration: formatDuration(seconds),
         durationSeconds: seconds,
-        channelName: videoDetails.author || "",
-        channelId: videoDetails.channelId || "",
-        viewCount: videoDetails.viewCount || "0",
+        channelName: videoDetails?.author || "",
+        channelId: videoDetails?.channelId || "",
+        viewCount: videoDetails?.viewCount || "0",
         publishDate: "",
-        isLive: !!videoDetails.isLiveContent,
+        isLive: !!videoDetails?.isLiveContent,
         isPrivate: false,
         formats: allFormats,
         videoFormats,
