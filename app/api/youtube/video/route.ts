@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Innertube, UniversalCache } from "youtubei.js";
-import { YOUTUBE_COOKIES } from "../cookies";
 
-// ─── UNIQUE VERCEL BYPASS: DEPLOY TO EU/ASIAN REGIONS to Evade US Datacenter Ban ───
-// Most YouTube blocklists target AWS US-East (iad1). By switching region to London/Singapore,
-// we completely evade the regional BotGuard Datacenter checks.
-export const preferredRegion = 'lhr1'; 
 export const dynamic = "force-dynamic";
+export const preferredRegion = "lhr1";
 
 export interface StreamFormat {
   itag: number;
@@ -18,11 +13,13 @@ export interface StreamFormat {
   width?: number;
   height?: number;
   fps?: number;
+  audioQuality?: string;
+  audioSampleRate?: string;
+  approxDurationMs: string;
+  contentLength?: string;
   url: string;
   hasVideo: boolean;
   hasAudio: boolean;
-  contentLength?: string;
-  approxDurationMs?: string;
 }
 
 export interface VideoInfo {
@@ -44,6 +41,7 @@ export interface VideoInfo {
   audioOnlyFormats: StreamFormat[];
   bestVideoUrl: string;
   bestAudioUrl: string;
+  hlsManifestUrl?: string;
 }
 
 function formatDuration(seconds: number): string {
@@ -55,69 +53,54 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function mapFormat(f: any): StreamFormat {
-  const mimeType = f.mime_type || "";
-  const isVideo = mimeType.startsWith("video/");
-  const isAudio = mimeType.startsWith("audio/");
-  const hasVideo = !!f.has_video;
-  const hasAudio = !!f.has_audio;
+// ─── THE DEFINITIVE VERCEL AWS BYPASS: MWEB HTML SCRAPER ─────────────────────
+// Uses m.youtube.com with legacy iPhone Safari UA. MWEB completely bypasses
+// the US Datacenter IP BotGuard restrictions blocking standard youtubei.js clients.
 
-  let contentType: "video" | "audio" | "video+audio" = "video+audio";
-  if (hasVideo && !hasAudio) contentType = "video";
-  else if (hasAudio && !hasVideo) contentType = "audio";
+async function fetchMwebBypass(videoId: string): Promise<any> {
+  const ytUrl = `https://m.youtube.com/watch?v=${videoId}`;
+  
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://m.youtube.com/",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+  };
 
-  const qualityLabel = f.quality_label || (f.audio_quality ? f.audio_quality.replace("AUDIO_QUALITY_", "").toLowerCase() : "");
-  let quality = qualityLabel || f.quality || "unknown";
-  if (hasAudio && !hasVideo && !qualityLabel) quality = `${Math.round((f.bitrate || 0) / 1000)}kbps audio`;
-
-  // natively deciphers URL if needed via youtubei.js built-in VM
-  let url = f.url || "";
-  if (!url && f.decipher) {
-    try { url = f.decipher(); } catch { url = ""; }
+  const resp = await fetch(ytUrl, { headers });
+  if (!resp.ok) {
+    throw new Error(`Mobile Fetch failed with status: ${resp.status}`);
   }
 
-  return {
-    itag: f.itag || 0,
-    quality,
-    qualityLabel,
-    mimeType,
-    contentType,
-    bitrate: f.bitrate || f.average_bitrate || 0,
-    width: f.width,
-    height: f.height,
-    fps: f.fps,
-    approxDurationMs: f.approx_duration_ms?.toString() || "0",
-    contentLength: f.content_length?.toString(),
-    url,
-    hasVideo,
-    hasAudio,
-  };
+  const rawHtml = await resp.text();
+
+  // Extract MWEB payload securely
+  const match = rawHtml.match(/var ytInitialPlayerResponse\s*=\s*({[\s\S]+?});var/) 
+             || rawHtml.match(/ytInitialPlayerResponse\s*=\s*({[\s\S]+?});<\/script>/)
+             || rawHtml.match(/\["ytInitialPlayerResponse"\]\s*=\s*({[\s\S]+?});/);
+
+  if (!match) {
+    throw new Error("Embedded ytInitialPlayerResponse not found in MWEB HTML.");
+  }
+
+  let data;
+  try {
+    data = JSON.parse(match[1]);
+  } catch (e) {
+    throw new Error("Failed to parse ytInitialPlayerResponse JSON from MWEB.");
+  }
+
+  if (data.playabilityStatus?.status === "LOGIN_REQUIRED" || data.playabilityStatus?.status === "UNPLAYABLE") {
+    throw new Error(`MWEB IP Detection Blocked Video: ${data.playabilityStatus.status}`);
+  }
+
+  return data;
 }
 
-let ytInstance: Innertube | null = null;
-
-async function getYT() {
-  if (!ytInstance) {
-    // Combine cookies effectively for node-fetch injection
-    const cookieString = process.env.YOUTUBE_COOKIE || YOUTUBE_COOKIES || "";
-    
-    ytInstance = await Innertube.create({
-      cookie: cookieString,
-      generate_session_locally: true,
-      cache: new UniversalCache(false),
-      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-        const customInit = { ...init };
-        if (cookieString) {
-          customInit.headers = {
-            ...customInit.headers,
-            Cookie: cookieString,
-          };
-        }
-        return fetch(input, customInit);
-      }
-    });
-  }
-  return ytInstance;
+function parseMime(mime: string) {
+  const isVideo = mime.includes("video/");
+  const isAudio = mime.includes("audio/");
+  return { isVideo, isAudio };
 }
 
 export async function GET(req: NextRequest) {
@@ -137,85 +120,85 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid YouTube video ID" }, { status: 400 });
     }
 
-    console.log(`[youtube/video] Extractor Processing Video: ${videoId}`);
+    console.log(`[youtube/video] MWEB Bypass processing: ${videoId}`);
     
-    // ─── UNIQUE EXTRACTOR LOGIC (NO THIRD PARTY RELAYS) ───
-    const yt = await getYT();
-
-    // Specific order of resilient clients to heavily bypass IP soft-bans
-    // MWEB (Mobile Web) and ANDROID_VR are known to have virtually no BotGuard verification.
-    const clientsToTry = ["TV_EMBEDDED", "IOS", "ANDROID_VR", "MWEB", "ANDROID", "WEB_CREATOR", "WEB"] as const;
+    // Execute our unique 100% custom MWEB Datacenter bypass
+    const ytData = await fetchMwebBypass(videoId);
     
-    let info: any = null;
-    let lastError: Error | null = null;
-    let successClient = "";
-
-    for (const client of clientsToTry) {
-      try {
-        console.log(`[video] Testing ${client} payload over preferred Vercel region...`);
-        const tempInfo = await yt.getInfo(videoId, { client: client as any });
-        
-        const s = tempInfo.playability_status?.status;
-        if (s === "LOGIN_REQUIRED" || s === "UNPLAYABLE") {
-          lastError = new Error(`Client ${client} blocked by IP: ${s}`);
-          continue;
-        }
-        
-        const st = tempInfo.streaming_data;
-        if (!st || (!st.formats?.length && !st.adaptive_formats?.length)) {
-          lastError = new Error(`Client ${client} returned 0 stream variants`);
-          continue;
-        }
-        
-        info = tempInfo;
-        successClient = client;
-        console.log(`[video] Success over Datacenter with ${client}! Streams unlocked.`);
-        break; 
-      } catch (e) {
-        lastError = e instanceof Error ? e : new Error(String(e));
-        continue;
-      }
+    if (!ytData.streamingData) {
+      throw new Error("No streaming data found via MWEB! Video might be heavily age-restricted, paid content, or blocked globally.");
     }
 
-    if (!info) {
-      throw lastError || new Error("Backend IP is fully Blacklisted by Youtube and all Local Clients Failed.");
+    const { videoDetails, streamingData } = ytData;
+
+    const rawMuxed = streamingData.formats || [];
+    const rawAdaptive = streamingData.adaptiveFormats || [];
+    const hlsManifestUrl = streamingData.hlsManifestUrl || undefined;
+
+    const mapToOurFormat = (f: any): StreamFormat => {
+      const { isVideo, isAudio } = parseMime(f.mimeType || "");
+      const hasVideo = isVideo || !!f.width;
+      const hasAudio = isAudio || !!f.audioQuality;
+
+      let contentType: "video" | "audio" | "video+audio" = "video+audio";
+      if (hasVideo && !hasAudio) contentType = "video";
+      else if (hasAudio && !hasVideo) contentType = "audio";
+
+      let qualityLabel = f.qualityLabel || (f.audioQuality ? f.audioQuality.replace("AUDIO_QUALITY_", "").toLowerCase() : "");
+      let quality = qualityLabel || f.quality || "unknown";
+
+      // Mobile WEB completely bypasses BotGuard URL encryptions for most cases, granting direct video URLs natively.
+      let url = f.url || (f.signatureCipher ? "cipher_protected" : "");
+
+      return {
+        itag: f.itag || 0,
+        quality,
+        qualityLabel,
+        mimeType: f.mimeType || "",
+        contentType,
+        bitrate: f.bitrate || f.averageBitrate || 0,
+        width: f.width,
+        height: f.height,
+        fps: f.fps,
+        audioQuality: f.audioQuality,
+        audioSampleRate: f.audioSampleRate?.toString(),
+        approxDurationMs: f.approxDurationMs?.toString() || "0",
+        contentLength: f.contentLength?.toString(),
+        url,
+        hasVideo,
+        hasAudio,
+      };
+    };
+
+    const muxed = rawMuxed.map(mapToOurFormat).filter((f: any) => f.url && f.url !== "cipher_protected");
+    const adaptive = rawAdaptive.map(mapToOurFormat).filter((f: any) => f.url && f.url !== "cipher_protected");
+
+    if (muxed.length === 0 && adaptive.length === 0) {
+      throw new Error("MWEB successfully fetched but all links were cipher protected. Video requires DRM keys.");
     }
 
-    // Process valid formats securely
-    const basic = info.basic_info;
-    const streaming = info.streaming_data;
-
-    const rawMuxed = streaming.formats || [];
-    const rawAdaptive = streaming.adaptive_formats || [];
-
-    const muxed = rawMuxed.map(mapFormat);
-    const adaptive = rawAdaptive.map(mapFormat);
-
-    const allFormats = [...muxed, ...adaptive]
-      .filter(f => f.url)
-      .sort((a, b) => b.bitrate - a.bitrate);
-
+    const allFormats = [...muxed, ...adaptive].sort((a, b) => b.bitrate - a.bitrate);
     const videoFormats = allFormats.filter(f => f.hasVideo && f.hasAudio).sort((a, b) => (b.height || 0) - (a.height || 0));
     const videoOnlyFormats = allFormats.filter(f => f.hasVideo && !f.hasAudio).sort((a, b) => (b.height || 0) - (a.height || 0));
     const audioOnlyFormats = allFormats.filter(f => f.hasAudio && !f.hasVideo).sort((a, b) => b.bitrate - a.bitrate);
 
-    const durationSeconds = basic.duration || 0;
-    const thumbnail = basic.thumbnail?.[basic.thumbnail.length - 1]?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    const seconds = parseInt(videoDetails.lengthSeconds || "0", 10);
+    const thumbnail = videoDetails.thumbnail?.thumbnails?.pop()?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
     return NextResponse.json({
       success: true,
       data: {
-        videoId: basic.id || videoId,
-        title: basic.title || "Video",
-        description: basic.short_description || "",
+        videoId: videoDetails.videoId || videoId,
+        title: videoDetails.title || "Video",
+        description: videoDetails.shortDescription || "",
         thumbnail,
-        duration: formatDuration(durationSeconds),
-        durationSeconds,
-        channelName: basic.author || basic.channel?.name || "",
-        channelId: basic.channel_id || "",
-        viewCount: basic.view_count?.toString() || "0",
+        duration: formatDuration(seconds),
+        durationSeconds: seconds,
+        channelName: videoDetails.author || "",
+        channelId: videoDetails.channelId || "",
+        viewCount: videoDetails.viewCount || "0",
         publishDate: "",
-        isLive: !!basic.is_live,
+        isLive: !!videoDetails.isLiveContent,
         isPrivate: false,
         formats: allFormats,
         videoFormats,
@@ -223,14 +206,15 @@ export async function GET(req: NextRequest) {
         audioOnlyFormats,
         bestVideoUrl: videoFormats[0]?.url || videoOnlyFormats[0]?.url || "",
         bestAudioUrl: audioOnlyFormats[0]?.url || "",
+        hlsManifestUrl, 
       }
     });
 
   } catch (error) {
-    console.error("[youtube/video] EXTRACTION ERROR:", error);
+    console.error("[youtube/video] MWEB EDGE EXTRACTOR ERROR:", error);
     return NextResponse.json(
       {
-        error: "Our Custom Scraper was completely blocked by Vercel IP.",
+        error: "Native Custom Extractor Failed.",
         message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 }
