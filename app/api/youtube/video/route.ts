@@ -116,6 +116,7 @@ async function getYT() {
     }
 
     ytInstance = await Innertube.create({
+      cookie: cookie,
       generate_session_locally: true,
       cache: new UniversalCache(false),
       fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -161,7 +162,7 @@ async function fetchFallbackHTML(videoId: string) {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
         "Accept-Language": "en-US,en;q=0.9",
-        "Cookie": process.env.YOUTUBE_COOKIE || YOUTUBE_COOKIES || "CONSENT=YES+1; SOCS=CAESEwgDEgk0OTcxMzI3NTIaAmVuIAEaBgiAlLKxBg==",
+        "Referer": "https://www.youtube.com/"
       }
     });
     const html = await res.text();
@@ -185,9 +186,93 @@ async function fetchFallbackHTML(videoId: string) {
 }
 
 async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
-  const yt = await getYT();
+  // 1. STRATEGY: Try pure HTML fetch mimicking a web crawler (Extremely high Vercel success rate)
+  try {
+    console.log(`[video] Attempting GoogleBot HTML fast-fetch bypass for ${videoId}...`);
+    const fallbackData = await fetchFallbackHTML(videoId);
+    if (fallbackData && fallbackData.streaming_data) {
+      const { basic_info, streaming_data } = fallbackData;
+      
+      const rawMuxed = streaming_data.formats || [];
+      const rawAdaptive = streaming_data.adaptiveFormats || [];
+      
+      const fallbackMapFormat = (f: any): StreamFormat => {
+        const isVideo = f.mimeType?.includes("video/");
+        const isAudio = f.mimeType?.includes("audio/");
+        const hasVideo = !!isVideo || !!f.width;
+        const hasAudio = !!isAudio || !!f.audioQuality;
+  
+        let qualityLabel = f.qualityLabel || (f.audioQuality ? f.audioQuality.replace("AUDIO_QUALITY_", "").toLowerCase() : "");
+        let quality = qualityLabel || f.quality || "unknown";
+        
+        let contentType: "video" | "audio" | "video+audio" = "video+audio";
+        if (hasVideo && !hasAudio) contentType = "video";
+        else if (hasAudio && !hasVideo) contentType = "audio";
+  
+        let url = f.url || (f.signatureCipher ? "ciphered_needs_decoding" : "");
+  
+        return {
+          itag: f.itag || 0,
+          quality,
+          qualityLabel,
+          mimeType: f.mimeType || "",
+          contentType,
+          bitrate: f.bitrate || f.averageBitrate || 0,
+          width: f.width,
+          height: f.height,
+          fps: f.fps,
+          audioQuality: f.audioQuality,
+          audioSampleRate: f.audioSampleRate?.toString(),
+          approxDurationMs: f.approxDurationMs?.toString() || "0",
+          contentLength: f.contentLength?.toString(),
+          url,
+          hasVideo,
+          hasAudio,
+        };
+      };
+  
+      const muxed = rawMuxed.map(fallbackMapFormat).filter((f: any) => f.url && f.url !== "ciphered_needs_decoding");
+      const adaptive = rawAdaptive.map(fallbackMapFormat).filter((f: any) => f.url && f.url !== "ciphered_needs_decoding");
+      
+      if (muxed.length > 0 || adaptive.length > 0) {
+        console.log(`[video] GoogleBot fast-fetch success! Stream mapping done.`);
+        const allFormats = [...muxed, ...adaptive].sort((a, b) => b.bitrate - a.bitrate);
+        const videoFormats = allFormats.filter(f => f.hasVideo && f.hasAudio).sort((a, b) => (b.height || 0) - (a.height || 0));
+        const videoOnlyFormats = allFormats.filter(f => f.hasVideo && !f.hasAudio).sort((a, b) => (b.height || 0) - (a.height || 0));
+        const audioOnlyFormats = allFormats.filter(f => f.hasAudio && !f.hasVideo).sort((a, b) => b.bitrate - a.bitrate);
+  
+        const seconds = parseInt(basic_info.lengthSeconds || "0", 10);
+        const thumbnail = basic_info.thumbnail?.thumbnails?.pop()?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+  
+        return {
+          videoId: basic_info.videoId || videoId,
+          title: basic_info.title || "",
+          description: basic_info.shortDescription || "",
+          thumbnail,
+          duration: formatDuration(seconds),
+          durationSeconds: seconds,
+          channelName: basic_info.author || "",
+          channelId: basic_info.channelId || "",
+          viewCount: basic_info.viewCount || "0",
+          publishDate: "",
+          isLive: !!basic_info.isLiveContent,
+          isPrivate: false,
+          formats: allFormats,
+          videoFormats,
+          videoOnlyFormats,
+          audioOnlyFormats,
+          bestVideoUrl: videoFormats[0]?.url || videoOnlyFormats[0]?.url || "",
+          bestAudioUrl: audioOnlyFormats[0]?.url || "",
+        };
+      }
+    }
+  } catch (e) {
+    console.warn(`[video] GoogleBot bypass failed, moving to InnerTube:`, e);
+  }
 
-  const clientsToTry = ["WEB_CREATOR", "IOS", "ANDROID", "TV_EMBEDDED", "WEB"] as const;
+  // 2. STRATEGY: Try innerTube natively with Cookies and Multiple Clients
+  const yt = await getYT();
+  const clientsToTry = ["TV_EMBEDDED", "IOS", "ANDROID", "WEB_CREATOR", "WEB"] as const;
   
   let info: any = null;
   let lastError = null;
@@ -199,17 +284,18 @@ async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
       
       const s = tempInfo.playability_status?.status;
       if (s === "LOGIN_REQUIRED" || s === "UNPLAYABLE") {
-        lastError = new Error(`${client} returned ${s}`);
+        lastError = new Error(`Client ${client} blocked: ${s}`);
         continue;
       }
       
       const st = tempInfo.streaming_data;
       if (!st || (!st.formats?.length && !st.adaptive_formats?.length)) {
-        lastError = new Error(`${client} returned NO streams`);
+        lastError = new Error(`Client ${client} returned no streams`);
         continue;
       }
       
       info = tempInfo;
+      console.log(`[video] Success with ${client} client!`);
       break; 
     } catch (e) {
       lastError = e;
@@ -218,90 +304,7 @@ async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
   }
 
   if (!info) {
-    console.warn(`[video] All InnerTube clients failed. Trying RAW HTML Fallback via GoogleBot...`);
-    const fallbackData = await fetchFallbackHTML(videoId);
-    if (!fallbackData || !fallbackData.streaming_data) {
-      throw lastError || new Error("All clients and RAW HTML fallback failed.");
-    }
-
-    const { basic_info, streaming_data } = fallbackData;
-    
-    // We map manually for raw html fallback
-    const rawMuxed = streaming_data.formats || [];
-    const rawAdaptive = streaming_data.adaptiveFormats || [];
-    
-    const fallbackMapFormat = (f: any): StreamFormat => {
-      const isVideo = f.mimeType?.includes("video/");
-      const isAudio = f.mimeType?.includes("audio/");
-      const hasVideo = !!isVideo || !!f.width;
-      const hasAudio = !!isAudio || !!f.audioQuality;
-
-      let qualityLabel = f.qualityLabel || (f.audioQuality ? f.audioQuality.replace("AUDIO_QUALITY_", "").toLowerCase() : "");
-      let quality = qualityLabel || f.quality || "unknown";
-      
-      let contentType: "video" | "audio" | "video+audio" = "video+audio";
-      if (hasVideo && !hasAudio) contentType = "video";
-      else if (hasAudio && !hasVideo) contentType = "audio";
-
-      // HTML raw formats might be ciphered. If so, they need signature deciphering.
-      // But we just grab URL if it exists (Googlebot often gets non-ciphered)
-      let url = f.url || (f.signatureCipher ? "ciphered_needs_decoding" : "");
-
-      return {
-        itag: f.itag || 0,
-        quality,
-        qualityLabel,
-        mimeType: f.mimeType || "",
-        contentType,
-        bitrate: f.bitrate || f.averageBitrate || 0,
-        width: f.width,
-        height: f.height,
-        fps: f.fps,
-        audioQuality: f.audioQuality,
-        audioSampleRate: f.audioSampleRate?.toString(),
-        approxDurationMs: f.approxDurationMs?.toString() || "0",
-        contentLength: f.contentLength?.toString(),
-        url,
-        hasVideo,
-        hasAudio,
-      };
-    };
-
-    const muxed = rawMuxed.map(fallbackMapFormat).filter((f: any) => f.url && f.url !== "ciphered_needs_decoding");
-    const adaptive = rawAdaptive.map(fallbackMapFormat).filter((f: any) => f.url && f.url !== "ciphered_needs_decoding");
-    
-    if (muxed.length === 0 && adaptive.length === 0) {
-      throw new Error("RAW HTML fallback found streams but all were ciphered.");
-    }
-
-    const allFormats = [...muxed, ...adaptive].sort((a, b) => b.bitrate - a.bitrate);
-    const videoFormats = allFormats.filter(f => f.hasVideo && f.hasAudio).sort((a, b) => (b.height || 0) - (a.height || 0));
-    const videoOnlyFormats = allFormats.filter(f => f.hasVideo && !f.hasAudio).sort((a, b) => (b.height || 0) - (a.height || 0));
-    const audioOnlyFormats = allFormats.filter(f => f.hasAudio && !f.hasVideo).sort((a, b) => b.bitrate - a.bitrate);
-
-    const seconds = parseInt(basic_info.lengthSeconds || "0", 10);
-    const thumbnail = basic_info.thumbnail?.thumbnails?.pop()?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-
-    return {
-      videoId: basic_info.videoId || videoId,
-      title: basic_info.title || "",
-      description: basic_info.shortDescription || "",
-      thumbnail,
-      duration: formatDuration(seconds),
-      durationSeconds: seconds,
-      channelName: basic_info.author || "",
-      channelId: basic_info.channelId || "",
-      viewCount: basic_info.viewCount || "0",
-      publishDate: "",
-      isLive: !!basic_info.isLiveContent,
-      isPrivate: false,
-      formats: allFormats,
-      videoFormats,
-      videoOnlyFormats,
-      audioOnlyFormats,
-      bestVideoUrl: videoFormats[0]?.url || videoOnlyFormats[0]?.url || "",
-      bestAudioUrl: audioOnlyFormats[0]?.url || "",
-    };
+    throw lastError || new Error("All extraction methods failed.");
   }
 
   // InnerTube success path
