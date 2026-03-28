@@ -76,16 +76,19 @@ function runYtDlp(videoUrl: string): Promise<any> {
       "--dump-single-json",
       "--no-warnings",
       "--no-playlist",
+      "--no-check-formats",
+      "--allow-unplayable-formats",
+      "--extractor-args", "youtube:player_client=android_vr,web",
       "--cookies", TMP_COOKIES,
-      "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "--user-agent", "com.google.android.apps.youtube.vr.oculus/1.57.29 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
       "--add-header", "Accept-Language:en-US,en;q=0.9",
       videoUrl,
     ];
 
-    execFile(TMP_BINARY, args, { maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(TMP_BINARY, args, { maxBuffer: 50 * 1024 * 1024, timeout: 55000 }, (err, stdout, stderr) => {
       if (err) {
-        const msg = stderr || err.message;
-        return reject(new Error(`yt-dlp failed: ${msg}`));
+        const msg = (stderr || err.message || "").split("\n").slice(0, 3).join(" | ");
+        return reject(new Error(`yt-dlp: ${msg}`));
       }
       try {
         resolve(JSON.parse(stdout));
