@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { YOUTUBE_COOKIES } from "../cookies";
 
 export const runtime = "edge";
 
@@ -127,6 +128,7 @@ async function fetchTrendingInnerTube(category: string): Promise<TrendingVideo[]
       headers: {
         "Content-Type": "application/json",
         ...COMMON_HEADERS,
+        "Cookie": process.env.YOUTUBE_COOKIE || YOUTUBE_COOKIES || "",
         "X-YouTube-Client-Name": "1",
         "X-YouTube-Client-Version": "2.20240506.00.00",
         "Origin": "https://www.youtube.com",
@@ -164,7 +166,7 @@ async function fetchTrendingFromPage(category: string): Promise<TrendingVideo[]>
   const res = await fetch(`https://www.youtube.com${path}`, {
     headers: {
       ...COMMON_HEADERS,
-      "Cookie": "CONSENT=YES+1; SOCS=CAESEwgDEgk0OTcxMzI3NTIaAmVuIAEaBgiAlLKxBg==",
+      "Cookie": process.env.YOUTUBE_COOKIE || YOUTUBE_COOKIES || "CONSENT=YES+1; SOCS=CAESEwgDEgk0OTcxMzI3NTIaAmVuIAEaBgiAlLKxBg==",
       "Referer": "https://www.youtube.com/",
     },
   });

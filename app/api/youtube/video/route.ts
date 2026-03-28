@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Innertube, UniversalCache } from "youtubei.js";
+import { YOUTUBE_COOKIES } from "../cookies";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -106,7 +107,7 @@ function mapFormat(f: any): StreamFormat {
 let ytInstance: Innertube | null = null;
 async function getYT() {
   if (!ytInstance) {
-    const cookie = process.env.YOUTUBE_COOKIE || "";
+    const cookie = process.env.YOUTUBE_COOKIE || YOUTUBE_COOKIES || "";
     const fetchOptions: any = {};
     if (cookie) {
       fetchOptions.headers = {
@@ -160,7 +161,7 @@ async function fetchFallbackHTML(videoId: string) {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
         "Accept-Language": "en-US,en;q=0.9",
-        "Cookie": process.env.YOUTUBE_COOKIE || "CONSENT=YES+1; SOCS=CAESEwgDEgk0OTcxMzI3NTIaAmVuIAEaBgiAlLKxBg==",
+        "Cookie": process.env.YOUTUBE_COOKIE || YOUTUBE_COOKIES || "CONSENT=YES+1; SOCS=CAESEwgDEgk0OTcxMzI3NTIaAmVuIAEaBgiAlLKxBg==",
       }
     });
     const html = await res.text();
