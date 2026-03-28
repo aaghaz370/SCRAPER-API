@@ -1,0 +1,84 @@
+{
+  "pushpa": {
+    "https://themoviebox.org/wefeed-h5api-bff/subject/play?subjectId=1210444511629951112&se=&ep=&detailPath=pushpa-the-rise-part-1-hindi-Qm0wcqCQpr1": {
+      "code": 0,
+      "message": "ok",
+      "data": {
+        "streams": [],
+        "freeNum": 999,
+        "limited": false,
+        "limitedCode": "",
+        "dash": [],
+        "hls": [],
+        "hasResource": false
+      }
+    },
+    "https://themoviebox.org/wefeed-h5api-bff/subject/play?subjectId=1210444511629951112&se=&ep=&detailPath=pushpa-the-rise-part-1-hindi-Qm0wcqCQpr1&scene=": {
+      "code": 0,
+      "message": "ok",
+      "data": {
+        "streams": [],
+        "freeNum": 999,
+        "limited": false,
+        "limitedCode": "",
+        "dash": [],
+        "hls": [],
+        "hasResource": false
+      }
+    },
+    "https://themoviebox.org/wefeed-h5api-bff/subject/play?subjectId=1210444511629951112&se=&ep=&detailPath=pushpa-the-rise-part-1-hindi-Qm0wcqCQpr1&source=film": {
+      "code": 0,
+      "message": "ok",
+      "data": {
+        "streams": [],
+        "freeNum": 999,
+        "limited": false,
+        "limitedCode": "",
+        "dash": [],
+        "hls": [],
+        "hasResource": false
+      }
+    }
+  },
+  "romeo": {
+    "https://themoviebox.org/wefeed-h5api-bff/subject/play?subjectId=4329833125934255736&se=&ep=&detailPath=o-romeo-hindi-cam-eVZBZggGQ95": {
+      "code": 0,
+      "message": "ok",
+      "data": {
+        "streams": [],
+        "freeNum": 999,
+        "limited": false,
+        "limitedCode": "",
+        "dash": [],
+        "hls": [],
+        "hasResource": false
+      }
+    },
+    "https://themoviebox.org/wefeed-h5api-bff/subject/play?subjectId=4329833125934255736&se=&ep=&detailPath=o-romeo-hindi-cam-eVZBZggGQ95&scene=": {
+      "code": 0,
+      "message": "ok",
+      "data": {
+        "streams": [],
+        "freeNum": 999,
+        "limited": false,
+        "limitedCode": "",
+        "dash": [],
+        "hls": [],
+        "hasResource": false
+      }
+    },
+    "https://themoviebox.org/wefeed-h5api-bff/subject/play?subjectId=4329833125934255736&se=&ep=&detailPath=o-romeo-hindi-cam-eVZBZggGQ95&source=film": {
+      "code": 0,
+      "message": "ok",
+      "data": {
+        "streams": [],
+        "freeNum": 999,
+        "limited": false,
+        "limitedCode": "",
+        "dash": [],
+        "hls": [],
+        "hasResource": false
+      }
+    }
+  }
+}

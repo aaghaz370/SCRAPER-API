@@ -1,0 +1,9 @@
+﻿File path from JSON: /hls/81713690.m3u8?q=720p&in=in=8ef4fd92cfc9489b5e6c1a75a5284e04::b3b40ad9a16a889a66f93efe32798a4b::1773190455::ni
+(No domain prefix ΓÇö it's relative)
+
+404 | https://net51.cc/hls/81713690.m3u8?q=720p&in=in=8ef4fd92... | text/html; charset=iso-8859-1
+200 | https://net52.cc/hls/81713690.m3u8?q=720p&in=in=8ef4fd92... | application/vnd.apple.mpegurl
+Γ£à FOUND! Domain is: net52.cc
+
+≡ƒÄ¼ FINAL M3U8 URL:
+https://net52.cc/hls/81713690.m3u8?q=720p&in=in=8ef4fd92cfc9489b5e6c1a75a5284e04::b3b40ad9a16a889a66f93efe32798a4b::1773190455::ni

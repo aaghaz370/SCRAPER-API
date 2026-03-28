@@ -1,0 +1,31 @@
+{
+  "https://themoviebox.org/wefeed-h5api-bff/subject/play?subjectId=1210444511629951112&se=0&ep=0&detailPath=pushpa-the-rise-part-1-hindi-Qm0wcqCQpr1": [
+    {
+      "format": "MP4",
+      "id": "6188852554529997184",
+      "url": "https://bcdnxw.hakunaymatata.com/tran-audio/20250603/81d3689a56313be2585794f10a1d1b2f.mp4?sign=8df42dcf5ddc4f008040a824401b79c7&t=1773323026",
+      "resolutions": "360",
+      "size": "914920650",
+      "duration": 10507,
+      "codecName": "h264"
+    },
+    {
+      "format": "MP4",
+      "id": "5005039171229074744",
+      "url": "https://bcdnxw.hakunaymatata.com/tran-audio/20250603/27dee14fde2f53f97d2aae5acdfb5d82.mp4?sign=f69405bd82dc3fe7b0f06f3edb62353c&t=1773323026",
+      "resolutions": "480",
+      "size": "1420559819",
+      "duration": 10507,
+      "codecName": "h264"
+    },
+    {
+      "format": "MP4",
+      "id": "1937766767594537344",
+      "url": "https://bcdnxw.hakunaymatata.com/tran-audio/20250603/3a9e6e359e679d9fb2642bffd3bd8a54.mp4?sign=acd5babd1b1c293036a64dc721f5172f&t=1773323026",
+      "resolutions": "1080",
+      "size": "3526818334",
+      "duration": 10507,
+      "codecName": "h264"
+    }
+  ]
+}

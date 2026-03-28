@@ -1,0 +1,32 @@
+PUSHPA: THE RISE (2021) — TMDB: 600957
+Total streams: 9
+
+=== 🏆 CASTLE SHARED (Fallback) (9 streams) ===
+
+  [Multi]
+  [480p] (769MB)
+  URL: https://img1.waczx.com/myhls/2024/11yue/Pushpa1_Tel_1080/index_153.m3u8?auth_key=AHDZZSnccQtvdy5JBHbFUa9QZgHpLXUazT5%2BR7K5OqY%3D&expire=1773575018306
+
+  [720p] (1.47GB)
+  URL: https://img1.waczx.com/myhls/2024/11yue/Pushpa1_Tel_1080/index_153.m3u8?auth_key=AHDZZSnccQtvdy5JBHbFUa9QZgHpLXUazT5%2BR7K5OqY%3D&expire=1773575018306
+
+  [1080p] (1.80GB)
+  URL: https://img1.waczx.com/myhls/2024/11yue/Pushpa1_Tel_1080/index_153.m3u8?auth_key=AHDZZSnccQtvdy5JBHbFUa9QZgHpLXUazT5%2BR7K5OqY%3D&expire=1773575018306
+
+  [480p] (769MB)
+  URL: https://img1.hxozw.com/myhls_mps/2024/11yue/Pushpa1_Tel_720/index_149.m3u8?auth_key=QJhOsFXWX%2F1%2Baqp7y%2FUjdlQ%2BfWJV%2FqJuvf%2FHPc3AtwY%3D&expire=1773575021040
+
+  [720p] (1.47GB)
+  URL: https://img1.hxozw.com/myhls_mps/2024/11yue/Pushpa1_Tel_720/index_149.m3u8?auth_key=QJhOsFXWX%2F1%2Baqp7y%2FUjdlQ%2BfWJV%2FqJuvf%2FHPc3AtwY%3D&expire=1773575021040
+
+  [1080p] (1.80GB)
+  URL: https://img1.hxozw.com/myhls_mps/2024/11yue/Pushpa1_Tel_720/index_149.m3u8?auth_key=QJhOsFXWX%2F1%2Baqp7y%2FUjdlQ%2BfWJV%2FqJuvf%2FHPc3AtwY%3D&expire=1773575021040
+
+  [480p] (769MB)
+  URL: https://img1.fwlou.com/myhls_mps/2024/11yue/Pushpa1_Tel_480/index_184.m3u8?auth_key=IguJ8EM2pBN1xUbUd7RsQnup6qUyyk0XPeElHLGMivU%3D&expire=1773575022212
+
+  [720p] (1.47GB)
+  URL: https://img1.fwlou.com/myhls_mps/2024/11yue/Pushpa1_Tel_480/index_184.m3u8?auth_key=IguJ8EM2pBN1xUbUd7RsQnup6qUyyk0XPeElHLGMivU%3D&expire=1773575022212
+
+  [1080p] (1.80GB)
+  URL: https://img1.fwlou.com/myhls_mps/2024/11yue/Pushpa1_Tel_480/index_184.m3u8?auth_key=IguJ8EM2pBN1xUbUd7RsQnup6qUyyk0XPeElHLGMivU%3D&expire=1773575022212

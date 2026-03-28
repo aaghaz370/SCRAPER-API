@@ -1,0 +1,21 @@
+PROVIDER STATUS REPORT — All Scrapers
+
+UHDMovies: ❌ Down
+  Domain: N/A
+  Links: 0
+
+VegaMovies: ✅ Working
+  Domain: https://vegamoviez.com
+  Links: 0
+
+ZeeFliz: ❌ Down
+  Domain: N/A
+  Links: 0
+
+ZinkMovies: ❌ Down
+  Domain: N/A
+  Links: 0
+
+MovieBox: ✅ Accessible
+  Domain: https://themovieblog.net
+  Links: 0

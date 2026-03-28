@@ -1,0 +1,559 @@
+https://net22.cc/play.php`, {
+            method: "POST",
+            headers: { 
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Cookie": cookies,
+                "Referer": "https://net20.cc/",
+                "X-Requested-With": "XMLHttpRequest"
+            },
+            body: `id=${postId}`,
+        });
+        
+        let playJson2 = await playRes.json().catch(e => null);
+        if(!playJson2 || !playJson2.h) return res.status(500).json({error: "Failed play.php bypass"});
+        
+        const hash = playJson2.h;
+        
+        // playlist.php
+        const ts = Date.now();
+        const plUrl = `https://net52.cc/playlist.php?id=${postId}&tm=${ts}&h=${encodeURIComponent(hash)}`;
+        
+        const playlistRes = await fetch(plUrl, { 
+            headers: { 
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "application/json, text/plain, */*",
+                "Cookie": cookies,
+                "Referer": "https://net51.cc/",
+                "X-Requested-With": "XMLHttpRequest"
+            } 
+        });
+        const playlistArr = await playlistRes.json().catch(e => []);
+        
+        let sources = playlistArr[0]?.sources || playlistArr?.sources || [];
+        sources = sources.map(s => ({
+            label: s.label,
+            url: s.file.startsWith('/') ? 'https://net52.cc'+s.file : s.file
+        }));
+        
+        // Let's parse the master M3U8 if it exists!
+        let subLinks = [];
+        let masterUrl = null;
+        if (sources.length > 0) {
+              masterUrl = sources[0].url;
+              const mRes = await fetch(masterUrl, { 
+                   headers: { 
+                        "User-Agent": "Mozilla/5.0",
+                        "Referer": "https://net52.cc/" 
+                   }
+              });
+              if(mRes.ok) {
+                   const mText = await mRes.text();
+                   const lines = mText.split(/\r?\n/);
+                   lines.forEach((line, i) => {
+                       if (line.includes('#EXT-X-MEDIA:TYPE=AUDIO')) {
+                            // Extract language
+                            const langMatch = line.match(/NAME="([^"]+)"/);
+                            const uriMatch = line.match(/URI="([^"]+)"/);
+                            if(langMatch && uriMatch) {
+                                subLinks.push({
+                                    type: 'Language',
+                                    name: langMatch[1],
+                                    url: uriMatch[1]
+                                });
+                            }
+                       }
+                       if (line.includes('#EXT-X-STREAM-INF')) {
+                            // The next line is the URL
+                            const resMatch = line.match(/RESOLUTION=(\\d+x\\d+)/);
+                            const urlLine = lines[i+1];
+                            if (urlLine && !urlLine.startsWith('#')) {
+                                subLinks.push({
+                                    type: 'Quality ' + (resMatch ? resMatch[1] : ''),
+                                    name: 'Video',
+                                    url: urlLine.trim()
+                                });
+                            }
+                       }
+                   });
+              }
+        }
+        
+        res.json({ success: true, master_url: masterUrl, parsed_links: subLinks });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// MovieBox Puppeteer Fetch — Pushpa Part 1
+app.get('/fetch_moviebox', async (req, res) => {
+    try {
+        const subjectId = req.query.id || '1210444511629951112';
+        const detailPath = req.query.path || 'pushpa-the-rise-part-1-hindi-Qm0wcqCQpr1';
+        
+        console.log(`[MovieBox] Launching Puppeteer for subjectId: ${subjectId}`);
+        const browser = await puppeteer.launch({
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
+        });
+        
+        let capturedStreams = [];
+        let token = '';
+        
+        const page = await browser.newPage();
+        await page.setRequestInterception(true);
+        page.on('request', r => r.continue());
+        
+        // Intercept the play API response
+        page.on('response', async response => {
+            const url = response.url();
+            if (url.includes('/wefeed-h5api-bff/subject/play')) {
+                try {
+                    const body = await response.text();
+                    const data = JSON.parse(body);
+                    const streams = data?.data?.streams || [];
+                    if (streams.length > 0) {
+                        capturedStreams = streams;
+                        console.log(`[MovieBox] Captured ${streams.length} streams!`);
+                    }
+                } catch(e) {}
+            }
+        });
+        
+        const movieUrl = `https://themoviebox.org/movies/${detailPath}?id=${subjectId}&type=/movie/detail&detailSe=&detailEp=&lang=en`;
+        console.log(`[MovieBox] Visiting: ${movieUrl}`);
+        
+        await page.goto(movieUrl, { waitUntil: 'networkidle2', timeout: 35000 });
+        await new Promise(r => setTimeout(r, 4000));
+        
+        // Get token from cookies
+        const cookies = await page.cookies();
+        const tok = cookies.find(c => c.name === 'mb_token');
+        if (tok) token = tok.value.replace(/^"|"$/g, '');
+        
+        await browser.close();
+        
+        if (capturedStreams.length === 0) {
+            return res.status(502).json({ success: false, error: 'No streams intercepted. Try again.' });
+        }
+        
+        const streams = capturedStreams.map(s => ({
+            quality: s.resolutions + 'p',
+            format: s.format || 'MP4',
+            size: s.size > 1e9 ? (s.size/1e9).toFixed(2)+'GB' : (s.size/1e6).toFixed(0)+'MB',
+            url: s.url,
+            duration: s.duration
+        })).sort((a, b) => parseInt(b.quality) - parseInt(a.quality));
+        
+        res.json({ success: true, source: 'moviebox', streams });
+    } catch(e) {
+        console.error('[MovieBox] Error:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+const extractAbyss = require('./extract_abyss');
+// Abyss Direct Extract
+app.get('/fetch_abyss', async (req, res) => {
+    try {
+        const slug = req.query.id || 'K8R6OOjS7';
+        console.log(`[Abyss] Extracting slug: ${slug}`);
+        
+        const sources = await extractAbyss(slug);
+        if (!sources || sources.length === 0) {
+            return res.status(502).json({ success: false, error: 'Failed to intercept Abyss streams.' });
+        }
+        
+        const streams = sources.map(s => ({
+            quality: s.label,
+            format: s.type || 'MP4',
+            url: s.file
+        })).reverse();
+        
+        res.json({ success: true, source: 'abyss', streams });
+    } catch(e) {
+        console.error('[Abyss] Error:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Serve HTML player
+app.get('/', (req, res) => {
+    res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>CINEMAHUB Ultra Player — NetMirror + MovieBox</title>
+        <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { background: #0a0a0f; color: #eee; font-family: 'Segoe UI', sans-serif; padding: 20px; }
+            h1 { color: #e50914; font-size: 24px; text-align: center; margin-bottom: 5px; }
+            video { width: 100%; border: 2px solid #222; border-radius: 10px; background: #000; display:block; }
+            .btn-q { padding: 9px 18px; border-radius: 7px; border: none; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s; }
+            .btn-q-nm { background: #1e3a5f; color: #60a5fa; }
+            .btn-q-mb { background: #3b0d0d; color: #f87171; }
+            .btn-q:hover { transform: scale(1.06); filter: brightness(1.3); }
+            .btn-q.active { outline: 2px solid #facc15; }
+        </style>
+    </head>
+    <body>
+        <h1>🎬 CINEMAHUB Ultra Player</h1>
+        <p style="text-align:center; color:#888; margin-bottom:20px; font-size:14px;">NetMirror (HLS Multi-Lang) + MovieBox (Direct MP4) — Pushpa: The Rise Part 1</p>
+
+        <div style="margin:16px 0; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+          <button style="padding:12px 28px; font-size:15px; border-radius:8px; border:none; cursor:pointer; font-weight:bold; background:linear-gradient(135deg,#1f78ff,#0d4fa3); color:white;" onclick="fetchNetMirror()">🔄 FETCH NetMirror (HLS)</button>
+          <button style="padding:12px 28px; font-size:15px; border-radius:8px; border:none; cursor:pointer; font-weight:bold; background:linear-gradient(135deg,#e50914,#8b0000); color:white;" onclick="fetchMovieBox()">📦 FETCH MovieBox (MP4)</button>
+          <button style="padding:12px 28px; font-size:15px; border-radius:8px; border:none; cursor:pointer; font-weight:bold; background:linear-gradient(135deg,#6366f1,#4338ca); color:white;" onclick="fetchAbyss()">🌊 FETCH Abyss (MP4)</button>
+        </div>
+
+        <div style="max-width:900px; margin:0 auto 16px;">
+          <video id="video" controls autoplay></video>
+          <div id="status" style="text-align:center; color:#facc15; font-size:15px; margin:12px 0; min-height:22px;">Press a FETCH button above to load streams</div>
+        </div>
+
+        <div id="nmSection" style="display:none; max-width:900px; margin:0 auto 16px; background:#111827; border-radius:12px; padding:18px; border:1px solid #1f2937;">
+          <div style="font-size:12px; color:#9ca3af; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">🎵 NetMirror — Audio Languages</div>
+          <div id="nmLangButtons" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;"></div>
+          <div style="font-size:12px; color:#9ca3af; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">📺 NetMirror — Video Quality</div>
+          <div id="nmQualButtons" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+        </div>
+
+        <div id="mbSection" style="display:none; max-width:900px; margin:0 auto 16px; background:#190d0d; border-radius:12px; padding:18px; border:1px solid #3b0d0d;">
+          <div style="font-size:12px; color:#f87171; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">📦 MovieBox — Direct MP4 (Stream + Download)</div>
+          <div id="mbButtons" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+        </div>
+
+        <div id="abyssSection" style="display:none; max-width:900px; margin:0 auto 16px; background:#0f172a; border-radius:12px; padding:18px; border:1px solid #1e293b;">
+          <div style="font-size:12px; color:#818cf8; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">🌊 Abyss — Encrypted Storage (Play/Download)</div>
+          <div id="abyssButtons" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+        </div>
+
+        <div style="max-width:900px; margin:0 auto 16px; display:flex; gap:8px;">
+          <input type="text" id="streamUrl" placeholder="Or paste a raw .m3u8 / .mp4 URL here" style="flex:1; padding:10px; border-radius:7px; border:1px solid #333; background:#1a1a2e; color:white; font-size:14px;"/>
+          <button onclick="playDirect()" style="padding:10px 20px; border-radius:7px; border:none; background:#e50914; color:white; font-weight:bold; cursor:pointer;">▶ PLAY</button>
+        </div>
+
+        <div id="controlsContainer" style="display:none;"></div>
+        
+        <script>
+            let hls;
+
+            // ── NetMirror Fetch ──
+            async function fetchNetMirror() {
+                setStatus('⏳ Fetching NetMirror Master M3U8... please wait (10-15s)');
+                document.getElementById('nmSection').style.display = 'none';
+                document.getElementById('mbSection').style.display = 'none';
+                document.getElementById('abyssSection').style.display = 'none';
+                try {
+                    const r = await fetch('/fetch_pushpa');
+                    const data = await r.json();
+                    if (data.success && data.master_url) {
+                        document.getElementById('streamUrl').value = data.master_url;
+                        setStatus('✅ NetMirror: Master M3U8 loaded. Playing...');
+                        playHLS(data.master_url);
+                    } else {
+                        setStatus('❌ NetMirror fetch failed: ' + (data.error || 'Unknown error'));
+                    }
+                } catch(e) { setStatus('❌ NetMirror Error: ' + e.message); }
+            }
+
+            // ── MovieBox Fetch (Puppeteer) ──
+            async function fetchMovieBox() {
+                setStatus('⏳ Launching MovieBox Puppeteer fetch... takes ~20-30s, please wait...');
+                document.getElementById('mbSection').style.display = 'none';
+                document.getElementById('nmSection').style.display = 'none';
+                document.getElementById('abyssSection').style.display = 'none';
+                try {
+                    const r = await fetch('/fetch_moviebox');
+                    const data = await r.json();
+                    if (data.success && data.streams && data.streams.length > 0) {
+                        setStatus('✅ MovieBox: Found ' + data.streams.length + ' direct MP4 streams!');
+                        buildMovieBoxButtons(data.streams);
+                        // Auto-play best quality
+                        playMP4(data.streams[0].url);
+                    } else {
+                        setStatus('❌ MovieBox: ' + (data.error || 'No streams found'));
+                    }
+                } catch(e) { setStatus('❌ MovieBox Error: ' + e.message); }
+            }
+
+            // ── Abyss Fetch (Puppeteer) ──
+            async function fetchAbyss() {
+                setStatus('⏳ Launching Abyss Extractor... waiting for decryption hook (5-15s)...');
+                document.getElementById('nmSection').style.display = 'none';
+                document.getElementById('mbSection').style.display = 'none';
+                document.getElementById('abyssSection').style.display = 'none';
+                try {
+                    const r = await fetch('/fetch_abyss?id=K8R6OOjS7');
+                    const data = await r.json();
+                    if (data.success && data.streams && data.streams.length > 0) {
+                        setStatus('✅ Abyss: Found ' + data.streams.length + ' raw MP4 stream links!');
+                        buildAbyssButtons(data.streams);
+                    } else {
+                        setStatus('❌ Abyss: ' + (data.error || 'No streams found'));
+                    }
+                } catch(e) { setStatus('❌ Abyss Error: ' + e.message); }
+            }
+
+            // ── Play HLS via hls.js (NetMirror) ──
+            function playHLS(rawUrl) {
+                const proxyUrl = '/proxy?url=' + encodeURIComponent(rawUrl);
+                const video = document.getElementById('video');
+                if (hls) { hls.destroy(); hls = null; }
+
+                if (Hls.isSupported()) {
+                    hls = new Hls({ debug: false, enableWorker: true });
+                    hls.loadSource(proxyUrl);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
+                        video.play();
+                        buildNetMirrorControls(data.audioTracks, data.levels);
+                    });
+                    hls.on(Hls.Events.ERROR, function(e, data) {
+                        if (data.fatal) setStatus('❌ HLS Error: ' + data.details);
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = proxyUrl;
+                    video.play();
+                }
+            }
+
+            // ── Play direct MP4 (MovieBox) via proxy for Referer ──
+            function playMP4(url) {
+                const proxyUrl = '/proxy?url=' + encodeURIComponent(url) + '&ref=mb';
+                const video = document.getElementById('video');
+                if (hls) { hls.destroy(); hls = null; }
+                video.src = proxyUrl;
+                video.play().catch(e => setStatus('▶ MP4 loaded — press play'));
+                document.getElementById('streamUrl').value = url;
+                setStatus('▶ Playing MovieBox MP4...');
+                markActive(url);
+            }
+
+            // ── Manual direct URL ──
+            function playDirect() {
+                const url = document.getElementById('streamUrl').value.trim();
+                if (!url) return;
+                if (url.includes('.m3u8')) playHLS(url);
+                else playMP4(url);
+            }
+
+            // ── Build NetMirror controls (HLS audio/quality) ──
+            function buildNetMirrorControls(audioTracks, levels) {
+                const sec = document.getElementById('nmSection');
+                sec.style.display = 'block';
+
+                const langDiv = document.getElementById('nmLangButtons');
+                langDiv.innerHTML = '';
+                if (audioTracks && audioTracks.length > 0) {
+                    audioTracks.forEach(track => {
+                        const btn = document.createElement('button');
+                        btn.className = 'btn-q btn-q-nm';
+                        btn.id = 'lang_' + track.id;
+                        btn.textContent = '🎵 ' + track.name;
+                        btn.onclick = () => { setAudioTrack(track.id); markActiveClass('lang_' + track.id, 'nmLangButtons'); };
+                        langDiv.appendChild(btn);
+                    });
+                } else {
+                    langDiv.innerHTML = '<span style="color:#666">Single language (Multi-lang in Master)</span>';
+                }
+
+                const qualDiv = document.getElementById('nmQualButtons');
+                qualDiv.innerHTML = '';
+                const autoBtn = document.createElement('button');
+                autoBtn.className = 'btn-q btn-q-nm';
+                autoBtn.textContent = '📺 AUTO';
+                autoBtn.onclick = () => { setVideoQuality(-1); markActiveClass('q_auto', 'nmQualButtons'); };
+                autoBtn.id = 'q_auto';
+                qualDiv.appendChild(autoBtn);
+                if (levels && levels.length > 0) {
+                    levels.forEach((level, i) => {
+                        const btn = document.createElement('button');
+                        btn.className = 'btn-q btn-q-nm';
+                        btn.id = 'q_' + i;
+                        btn.textContent = '📺 ' + level.height + 'p';
+                        btn.onclick = () => { setVideoQuality(i); markActiveClass('q_' + i, 'nmQualButtons'); };
+                        qualDiv.appendChild(btn);
+                    });
+                }
+            }
+
+            // ── Build MovieBox quality buttons (direct MP4) ──
+            function buildMovieBoxButtons(streams) {
+                const sec = document.getElementById('mbSection');
+                sec.style.display = 'block';
+                const div = document.getElementById('mbButtons');
+                div.innerHTML = '';
+                streams.forEach(s => {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn-q btn-q-mb';
+                    btn.id = 'mb_' + s.quality;
+                    btn.textContent = '📥 ' + s.quality + ' (' + s.size + ')';
+                    btn.onclick = () => { playMP4(s.url); markActiveClass('mb_' + s.quality, 'mbButtons'); };
+                    div.appendChild(btn);
+                });
+                // Also add download links
+                streams.forEach(s => {
+                    const a = document.createElement('a');
+                    a.href = '/proxy?url=' + encodeURIComponent(s.url) + '&ref=mb';
+                    a.download = 'Pushpa_' + s.quality + '.mp4';
+                    a.style.cssText = 'padding:9px 18px;border-radius:7px;background:#166534;color:#86efac;font-weight:600;font-size:14px;text-decoration:none;display:inline-block;';
+                    a.textContent = '⬇ Download ' + s.quality;
+                    div.appendChild(a);
+                });
+            }
+
+            // ── Build Abyss quality buttons ──
+            function buildAbyssButtons(streams) {
+                const sec = document.getElementById('abyssSection');
+                sec.style.display = 'block';
+                const div = document.getElementById('abyssButtons');
+                div.innerHTML = '';
+                streams.forEach(s => {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn-q btn-q-nm';
+                    btn.id = 'ab_' + s.quality.replace(/[^a-z0-9]/gi, '');
+                    btn.style.cssText = 'background:#1e1b4b; color:#a5b4fc; margin-right:5px;';
+                    btn.textContent = '▶ Load ' + s.quality;
+                    btn.onclick = () => { 
+                        playMP4(s.url); 
+                        markActiveClass(btn.id, 'abyssButtons'); 
+                        setStatus('▶ Abyss MP4 (Note: Abyss uses SW decryption, raw playback may return auth error)'); 
+                    };
+                    div.appendChild(btn);
+                });
+                // Also add raw download links
+                streams.forEach(s => {
+                    const a = document.createElement('a');
+                    const rawUrl = s.url.split('#')[0]; // googleapis link without SW hash
+                    a.href = rawUrl;
+                    a.target = '_blank';
+                    a.style.cssText = 'padding:9px 18px;border-radius:7px;background:#3730a3;color:#e0e7ff;font-weight:600;font-size:14px;text-decoration:none;display:inline-block; margin-right:5px;';
+                    a.textContent = '⬇ Raw Link ' + s.quality;
+                    div.appendChild(a);
+                });
+            }
+
+            function markActive(url) {
+                document.querySelectorAll('[data-url]').forEach(b => b.classList.remove('active'));
+            }
+            function markActiveClass(id, containerId) {
+                const div = document.getElementById(containerId);
+                div.querySelectorAll('.btn-q').forEach(b => b.classList.remove('active'));
+                const el = document.getElementById(id);
+                if (el) el.classList.add('active');
+            }
+            function setStatus(msg) { document.getElementById('status').textContent = msg; }
+            function setAudioTrack(id) { if(hls) { hls.audioTrack = id; setStatus('🎵 Audio: ' + id); } }
+            function setVideoQuality(i) { if(hls) { hls.currentLevel = i; hls.loadLevel = i; setStatus(i===-1?'📺 Quality: AUTO':'📺 Quality level '+i); } }
+        </script>
+    </body>
+    </html>
+    `);
+});
+
+// Proxy
+app.get('/proxy', async (req, res) => {
+    try {
+        let targetUrl = req.query.url;
+        if (!targetUrl) return res.status(400).send('No URL');
+        
+        if (!targetUrl.startsWith('http')) {
+            targetUrl = 'https://net52.cc' + (targetUrl.startsWith('/') ? '' : '/') + targetUrl;
+        }
+        
+        // Choose correct Referer based on target domain
+        let referer = 'https://net52.cc/';
+        if (targetUrl.includes('hakunaymatata') || targetUrl.includes('bcdnxw') || req.query.ref === 'mb') {
+            referer = 'https://themoviebox.org/';
+        } else if (targetUrl.includes('freecdn') || targetUrl.includes('s20') || targetUrl.includes('net5')) {
+            referer = 'https://net52.cc/';
+        }
+        
+        const response = await fetch(targetUrl, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": referer,
+                "Origin": referer.slice(0,-1),
+                "Accept": "*/*"
+            }
+        });
+        
+        if (!response.ok) {
+            console.error("Upstream Error:", response.status, targetUrl);
+            return res.status(response.status).send('Upstream stream provider failed.');
+        }
+
+        const ct = response.headers.get('content-type') || '';
+        res.set('Access-Control-Allow-Origin', '*');
+
+        if (targetUrl.includes('.m3u8') || ct.includes('mpegurl') || ct.includes('text/plain')) {
+             res.set('Content-Type', 'application/vnd.apple.mpegurl');
+             let text = await response.text();
+             
+             let lines = text.split(/\r?\n/);
+             let urlObj;
+             try { urlObj = new URL(targetUrl); } catch(e) {}
+             
+             let rewritten = lines.map(line => {
+                 line = line.trim();
+                 if (!line) return line;
+
+                 if (line.includes('URI="')) {
+                     line = line.replace(/URI="([^"]+)"/g, (match, p1) => {
+                          if (p1.startsWith('http')) return `URI="/proxy?url=${encodeURIComponent(p1)}"`;
+                          if (!urlObj) return match;
+                          let abs = p1.startsWith('/') ? urlObj.origin + p1 : urlObj.origin + urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1) + p1;
+                          if (urlObj.search && !abs.includes('?')) abs += urlObj.search;
+                          return `URI="/proxy?url=${encodeURIComponent(abs)}"`;
+                     });
+                 }
+
+                 if (!line.startsWith('#') && !line.startsWith('http')) {
+                      if(urlObj) {
+                          let abs;
+                          if (line.startsWith('/')) {
+                               abs = urlObj.origin + line;
+                          } else {
+                               const baseUrlPath = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
+                               abs = urlObj.origin + baseUrlPath + line;
+                          }
+                          if(urlObj.search && !line.includes('?')) {
+                               abs += urlObj.search;
+                          }
+                          return '/proxy?url=' + encodeURIComponent(abs);
+                      }
+                 } else if (line.startsWith('http') && !line.includes('/proxy?url=')) {
+                      if(urlObj && urlObj.search && !line.includes('?')) {
+                          line += urlObj.search;
+                      }
+                      return '/proxy?url=' + encodeURIComponent(line);
+                 }
+                 return line;
+             });
+             
+             res.send(rewritten.join('\n'));
+        } else {
+             res.set('Content-Type', ct);
+             // Allow caching for TS chunks
+             res.set('Cache-Control', 'public, max-age=3600');
+             if (response.body) {
+                 Readable.fromWeb(response.body).pipe(res);
+             } else {
+                 res.end();
+             }
+        }
+    } catch(e) {
+        console.error("Proxy Error:", e.message);
+        res.status(500).send('Proxy Error');
+    }
+});
+
+const PORT = 8080;
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`===============================================`);
+    console.log(`🎥 PLAYER SERVER READY FOR TESTING MULTI-LINKS!`);
+    console.log(`👉 BROWSER ME OPEN KAREIN: http://localhost:${PORT}`);
+    console.log(`===============================================

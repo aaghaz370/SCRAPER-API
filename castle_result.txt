@@ -1,0 +1,26 @@
+[480P] (339MB)
+https://img1.dlcob.com/hls/210544560/1080/index_181.m3u8?auth_key=Zw1eCSpP6s%2B47vKZHu%2FecqOvN7DA6Em2aTvhp8yVxrY%3D&expire=1773202019266
+
+[720P] (599MB)
+https://img1.dlcob.com/hls/210544560/1080/index_181.m3u8?auth_key=Zw1eCSpP6s%2B47vKZHu%2FecqOvN7DA6Em2aTvhp8yVxrY%3D&expire=1773202019266
+
+[1080P] (2.88GB)
+https://img1.dlcob.com/hls/210544560/1080/index_181.m3u8?auth_key=Zw1eCSpP6s%2B47vKZHu%2FecqOvN7DA6Em2aTvhp8yVxrY%3D&expire=1773202019266
+
+[480P] (339MB)
+https://img1.hlwox.com/hls_mps/210544560/720/index_161.m3u8?auth_key=CC5K5upJTliHT9PRx%2FjvzkrubvW8AM%2FZM12PBZ1vR%2B0%3D&expire=1773202019759
+
+[720P] (599MB)
+https://img1.hlwox.com/hls_mps/210544560/720/index_161.m3u8?auth_key=CC5K5upJTliHT9PRx%2FjvzkrubvW8AM%2FZM12PBZ1vR%2B0%3D&expire=1773202019759
+
+[1080P] (2.88GB)
+https://img1.hlwox.com/hls_mps/210544560/720/index_161.m3u8?auth_key=CC5K5upJTliHT9PRx%2FjvzkrubvW8AM%2FZM12PBZ1vR%2B0%3D&expire=1773202019759
+
+[480P] (339MB)
+https://img1.kctly.com/hls_mps/210544560/480/index_171.m3u8?auth_key=BPpUMt9lCm6p0oSL9sKFjamWBUaHeVge4f0XBQhtDBg%3D&expire=1773202020195
+
+[720P] (599MB)
+https://img1.kctly.com/hls_mps/210544560/480/index_171.m3u8?auth_key=BPpUMt9lCm6p0oSL9sKFjamWBUaHeVge4f0XBQhtDBg%3D&expire=1773202020195
+
+[1080P] (2.88GB)
+https://img1.kctly.com/hls_mps/210544560/480/index_171.m3u8?auth_key=BPpUMt9lCm6p0oSL9sKFjamWBUaHeVge4f0XBQhtDBg%3D&expire=1773202020195

@@ -1,0 +1,18 @@
+﻿=== FULL RAW PLAYLIST JSON ===
+[{ 
+            "title": "",
+            "image2": "https://imgcdn.kim/poster/1920/81713690.jpg",
+            "sources": [{
+                "file": "/hls/81713690.m3u8?in=in=8ef4fd92cfc9489b5e6c1a75a5284e04::6cd4d60710d7bef5c12e271d075628e2::1773190397::ni",
+                "label": "Full HD",
+                "type": "application/vnd.apple.mpegurl"
+            },{
+                "file": "/hls/81713690.m3u8?q=720p&in=in=8ef4fd92cfc9489b5e6c1a75a5284e04::6cd4d60710d7bef5c12e271d075628e2::1773190397::ni",
+                "label": "Mid HD",
+                "type": "application/vnd.apple.mpegurl",
+                "default": "true"
+            },{
+                "file": "/hls/81713690.m3u8?q=480p&in=in=8ef4fd92cfc9489b5e6c1a75a5284e04::6cd4d60710d7bef5c12e271d075628e2::1773190397::ni",
+                "label": "Low HD",
+                "type": "application/vnd.apple.mpegurl"
+            }],"tracks":[{"kind":"thumbnails","file":"https:\/\/back05.nfmirrorcdn.top\/vtt\/81713690.vtt"}]}]

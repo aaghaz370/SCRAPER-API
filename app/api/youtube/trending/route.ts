@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const runtime = "edge";
+
 // ─── YouTube Trending using HTML scrape fallback ─────────────────────────────
 // Tries InnerTube browse first, falls back to scraping ytInitialData from page.
 
