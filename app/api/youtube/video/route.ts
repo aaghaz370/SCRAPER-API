@@ -161,20 +161,27 @@ function extractPlayerResponse(html: string): any | null {
 }
 
 // ─── Strategy 1: MWEB HTML scrape ────────────────────────────────────────────
-async function fetchFromMWEB(videoId: string): Promise<any> {
+async function fetchFromMWEB(videoId: string, useGooglebot = false): Promise<any> {
+  // WhatsApp and Googlebot user-agents are explicitly whitelisted by YouTube
+  // from receiving CAPTCHA bot-challenges, allowing them to cleanly parse the HTML
+  // on Vercel Cloudflare Edge IPs. 
+  const UA = useGooglebot
+    ? "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+    : "WhatsApp/2.21.19.21 A";
+
   const url = `https://m.youtube.com/watch?v=${videoId}&hl=en&gl=US`;
   const res = await fetch(url, {
     headers: {
-      "User-Agent": MWEB_UA,
+      "User-Agent": UA,
       "Accept-Language": "en-US,en;q=0.9",
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Cookie": "CONSENT=YES+1; SOCS=CAESEwgDEgk0OTcxMzI3NTIaAmVuIAEaBgiAlLKxBg==",
+      "Cookie": "CONSENT=YES+1",
     },
   });
-  if (!res.ok) throw new Error(`MWEB: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`MWEB (${useGooglebot ? 'Googlebot' : 'WhatsApp'}): HTTP ${res.status}`);
   const html = await res.text();
   const parsed = extractPlayerResponse(html);
-  if (!parsed) throw new Error("ytInitialPlayerResponse not found in MWEB");
+  if (!parsed) throw new Error(`ytInitialPlayerResponse not found using ${useGooglebot ? 'Googlebot' : 'WhatsApp'} UA`);
   return parsed;
 }
 
@@ -300,13 +307,23 @@ function buildVideoInfo(videoId: string, data: any): VideoInfo {
 async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
   let playerData: any = null;
 
+  // 1. Try WhatsApp crawler User-Agent (gets streamingData AND bypasses Cloudflare checks)
   try {
-    playerData = await fetchFromMWEB(videoId);
-    console.log(`[video-edge] MWEB OK | formats:${playerData?.streamingData?.formats?.length || 0} adaptive:${playerData?.streamingData?.adaptiveFormats?.length || 0}`);
+    playerData = await fetchFromMWEB(videoId, false);
+    console.log(`[video-edge] WhatsApp MWEB OK | formats:${playerData?.streamingData?.formats?.length || 0} adaptive:${playerData?.streamingData?.adaptiveFormats?.length || 0}`);
   } catch (e) {
-    console.warn("[video-edge] MWEB failed:", (e as Error).message);
+    console.warn("[video-edge] WhatsApp MWEB failed:", (e as Error).message);
+    
+    // 2. Fallback: Try Googlebot User-Agent (safest bet for simply extracting videoDetails like title/thumbs bypassing Botguard)
+    try {
+      playerData = await fetchFromMWEB(videoId, true);
+      console.log(`[video-edge] Googlebot MWEB OK | adaptive:${playerData?.streamingData?.adaptiveFormats?.length || 0}`);
+    } catch (err2) {
+      console.warn("[video-edge] Googlebot MWEB failed:", (err2 as Error).message);
+    }
   }
 
+  // 3. Fallback for Stream Extraction: Try TVHTML5 InnerTube client (Good for non-music videos)
   if (!playerData?.streamingData?.adaptiveFormats?.length) {
     try {
       const tv = await fetchTVClient(videoId);
@@ -321,8 +338,9 @@ async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
     }
   }
 
+  // If no videoDetails could be extracted anywhere (total block), use oEmbed for minimum UX display
   if (!playerData?.videoDetails) {
-    console.warn("[video-edge] All strategies failed, using oEmbed metadata");
+    console.warn("[video-edge] All strategies failed, using oEmbed metadata fallback");
     return (await fetchOEmbed(videoId)) as VideoInfo;
   }
 
