@@ -70,7 +70,7 @@ async function ensureReady() {
 }
 
 // Run yt-dlp --dump-json for a video URL
-function runYtDlp(videoUrl: string): Promise<any> {
+function runYtDlp(videoUrl: string, debug = false): Promise<any> {
   return new Promise((resolve, reject) => {
     const args = [
       "--dump-single-json",
@@ -78,22 +78,24 @@ function runYtDlp(videoUrl: string): Promise<any> {
       "--no-playlist",
       "--no-check-formats",
       "--allow-unplayable-formats",
-      "--extractor-args", "youtube:player_client=android_vr,web",
+      // iOS client is most reliable without po_token requirement;
+      // yt-dlp sets the correct UA for this client automatically
+      "--extractor-args", "youtube:player_client=ios,web",
       "--cookies", TMP_COOKIES,
-      "--user-agent", "com.google.android.apps.youtube.vr.oculus/1.57.29 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
       "--add-header", "Accept-Language:en-US,en;q=0.9",
+      ...(debug ? ["--verbose"] : []),
       videoUrl,
     ];
 
     execFile(TMP_BINARY, args, { maxBuffer: 50 * 1024 * 1024, timeout: 55000 }, (err, stdout, stderr) => {
       if (err) {
-        const msg = (stderr || err.message || "").split("\n").slice(0, 3).join(" | ");
-        return reject(new Error(`yt-dlp: ${msg}`));
+        // Return full stderr for diagnosis
+        return reject(new Error(stderr || err.message || "yt-dlp unknown error"));
       }
       try {
-        resolve(JSON.parse(stdout));
+        resolve({ data: JSON.parse(stdout), stderr });
       } catch (e) {
-        reject(new Error("yt-dlp returned invalid JSON"));
+        reject(new Error(`yt-dlp JSON parse failed. stdout[0:200]=${stdout.substring(0,200)}`));
       }
     });
   });
@@ -180,7 +182,8 @@ export async function GET(req: NextRequest) {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     console.log(`[youtube/video] yt-dlp extracting: ${videoId}`);
 
-    const data = await runYtDlp(videoUrl);
+    const debug = searchParams.get("debug") === "1";
+    const { data, stderr: ytStderr } = await runYtDlp(videoUrl, debug);
 
     const rawFormats: any[] = data.formats || [];
     const allFormats = rawFormats
@@ -189,7 +192,11 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.bitrate - a.bitrate);
 
     if (allFormats.length === 0) {
-      throw new Error("No playable stream URLs found. Video may be DRM-only.");
+      return NextResponse.json({
+        error: "No playable stream URLs found.",
+        formatsReceived: rawFormats.length,
+        ytDebug: ytStderr?.split("\n").slice(-20).join("\n"),
+      }, { status: 500 });
     }
 
     const videoFormats = allFormats
@@ -233,7 +240,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
-    console.error("[youtube/video] ERROR:", msg);
+    console.error("[youtube/video] ERROR:", msg.substring(0, 300));
     return NextResponse.json({ error: "Extraction failed.", message: msg }, { status: 500 });
   }
 }
