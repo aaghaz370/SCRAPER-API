@@ -77,25 +77,38 @@ function runYtDlp(videoUrl: string, debug = false): Promise<any> {
       "--no-warnings",
       "--no-playlist",
       "--no-check-formats",
-      "--allow-unplayable-formats",
-      // iOS client is most reliable without po_token requirement;
-      // yt-dlp sets the correct UA for this client automatically
-      "--extractor-args", "youtube:player_client=ios,web",
+      // Use ios only — no web client (web forces SABR which needs po_token)
+      "--extractor-args", "youtube:player_client=ios",
       "--cookies", TMP_COOKIES,
       "--add-header", "Accept-Language:en-US,en;q=0.9",
       ...(debug ? ["--verbose"] : []),
       videoUrl,
     ];
 
-    execFile(TMP_BINARY, args, { maxBuffer: 50 * 1024 * 1024, timeout: 55000 }, (err, stdout, stderr) => {
+    // CRITICAL FIX:
+    // yt-dlp needs "node" in PATH to generate PO Tokens via JS Challenge.
+    // When running as a child process on Vercel Lambda, PATH may not include
+    // the directory where Node.js lives. We expose it explicitly.
+    const nodeDir = path.dirname(process.execPath);
+    const childEnv = {
+      ...process.env,
+      PATH: `${nodeDir}:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ""}`,
+      HOME: "/tmp", // yt-dlp needs a writable HOME
+      TMPDIR: "/tmp",
+    };
+
+    execFile(TMP_BINARY, args, {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 55000,
+      env: childEnv,
+    }, (err, stdout, stderr) => {
       if (err) {
-        // Return full stderr for diagnosis
         return reject(new Error(stderr || err.message || "yt-dlp unknown error"));
       }
       try {
         resolve({ data: JSON.parse(stdout), stderr });
       } catch (e) {
-        reject(new Error(`yt-dlp JSON parse failed. stdout[0:200]=${stdout.substring(0,200)}`));
+        reject(new Error(`yt-dlp JSON parse failed. stdout[0:200]=${stdout.substring(0, 200)}`));
       }
     });
   });
