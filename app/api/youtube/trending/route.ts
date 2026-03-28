@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { YOUTUBE_COOKIES } from "../cookies";
-export const runtime = "edge";
+import { YOUTUBE_COOKIES } from "../cookies";export const preferredRegion = "lhr1";
 
 // ─── YouTube Trending using HTML scrape fallback ─────────────────────────────
 // Tries InnerTube browse first, falls back to scraping ytInitialData from page.
