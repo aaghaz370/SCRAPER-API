@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { YOUTUBE_COOKIES } from "../cookies";
-// No edge config
+export const runtime = "edge";
 
 // ─── YouTube Trending using HTML scrape fallback ─────────────────────────────
 // Tries InnerTube browse first, falls back to scraping ytInitialData from page.
