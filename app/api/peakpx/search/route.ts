@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchPeakPX, parseWallpaperGrid, parsePagination } from "../_utils";
+import { fetchDDGImages } from "../_utils";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -11,37 +11,23 @@ export async function GET(req: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1", 10) || 1;
 
     if (!q.trim()) {
-      return NextResponse.json(
-        { error: "Missing query. Use ?q=nature" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing query. Use ?q=nature" }, { status: 400 });
     }
 
-    const encodedQ = encodeURIComponent(q.trim());
-    const url =
-      page > 1
-        ? `https://www.peakpx.com/en/search?q=${encodedQ}&page=${page}`
-        : `https://www.peakpx.com/en/search?q=${encodedQ}`;
-
-    const html = await fetchPeakPX(url);
-    const wallpapers = parseWallpaperGrid(html);
-    const { totalPages, hasNextPage } = parsePagination(html, page);
+    const searchQuery = `site:peakpx.com ${q} wallpaper`;
+    const wallpapers = await fetchDDGImages(searchQuery, page);
 
     return NextResponse.json({
       success: true,
       query: q,
       page,
-      totalPages,
-      hasNextPage,
+      hasMore: wallpapers.length > 0,
       count: wallpapers.length,
-      wallpapers,
+      wallpapers
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
-    console.error("[peakpx/search] ERROR:", msg);
-    return NextResponse.json(
-      { error: "Search failed", message: msg },
-      { status: 500 }
-    );
+    console.error("[peakpx/search] DDG Bypass ERROR:", msg);
+    return NextResponse.json({ error: "Search failed", message: msg }, { status: 500 });
   }
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchPeakPX, parseWallpaperGrid, parsePagination } from "../_utils";
+import { fetchDDGImages } from "../_utils";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -14,47 +14,30 @@ export const PEAKPX_CATEGORIES = [
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const category = (
-      searchParams.get("name") || searchParams.get("category") || ""
-    )
-      .toLowerCase()
-      .trim();
+    const category = (searchParams.get("name") || searchParams.get("category") || "").toLowerCase().trim();
     const page = parseInt(searchParams.get("page") || "1", 10) || 1;
 
-    if (!category) {
-      return NextResponse.json(
-        {
-          error: "Missing category name. Use ?name=nature",
-          availableCategories: PEAKPX_CATEGORIES,
-        },
-        { status: 400 }
-      );
+    if (!category || !PEAKPX_CATEGORIES.includes(category)) {
+      return NextResponse.json({
+        error: "Missing or invalid category name",
+        availableCategories: PEAKPX_CATEGORIES
+      }, { status: 400 });
     }
 
-    const url =
-      page > 1
-        ? `https://www.peakpx.com/en/category/${encodeURIComponent(category)}/page/${page}`
-        : `https://www.peakpx.com/en/category/${encodeURIComponent(category)}`;
-
-    const html = await fetchPeakPX(url);
-    const wallpapers = parseWallpaperGrid(html);
-    const { totalPages, hasNextPage } = parsePagination(html, page);
+    const searchQuery = `site:peakpx.com ${category} 4k HD wallpaper`;
+    const wallpapers = await fetchDDGImages(searchQuery, page);
 
     return NextResponse.json({
       success: true,
       category,
       page,
-      totalPages,
-      hasNextPage,
+      hasMore: wallpapers.length > 0,
       count: wallpapers.length,
-      wallpapers,
+      wallpapers
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
-    console.error("[peakpx/category] ERROR:", msg);
-    return NextResponse.json(
-      { error: "Category fetch failed", message: msg },
-      { status: 500 }
-    );
+    console.error("[peakpx/category] DDG Bypass ERROR:", msg);
+    return NextResponse.json({ error: "Category fetch failed", message: msg }, { status: 500 });
   }
 }
